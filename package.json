@@ -1,6 +1,9 @@
 {
   "name": "product-digital",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "npm install --prefix server && npm install --prefix client && npm run build --prefix client",
     "start": "cd server && node src/app.js",
