@@ -5,18 +5,24 @@ import Dashboard from './pages/Dashboard';
 import Productos from './pages/Productos';
 import Ventas    from './pages/Ventas';
 import Caja      from './pages/Caja';
+import Chats     from './pages/Chats';
+import WhatsApp  from './pages/WhatsApp';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
 
 const API = '/api';
 export const api = async (path, opts = {}) => {
-    const token = localStorage.getItem('pd_token');
-    const r = await fetch(`${API}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...opts.headers },
-        ...opts
-    });
-    return r.json();
+    try {
+        const token = localStorage.getItem('pd_token');
+        const r = await fetch(`${API}${path}`, {
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...opts.headers },
+            ...opts
+        });
+        return r.json();
+    } catch (e) {
+        return { ok: false, msg: 'No se pudo conectar con el servidor' };
+    }
 };
 
 function AuthProvider({ children }) {
@@ -34,9 +40,11 @@ function Layout({ children }) {
     const loc = useLocation();
     const links = [
         { to: '/dashboard', label: '📊 Dashboard' },
+        { to: '/chats',     label: '💬 Chats' },
         { to: '/productos', label: '📦 Productos' },
         { to: '/ventas',    label: '💰 Ventas' },
         { to: '/caja',      label: '🏦 Caja' },
+        { to: '/whatsapp',  label: '📱 WhatsApp' },
     ];
     return (
         <div style={{ display: 'flex', minHeight: '100vh' }}>
@@ -80,6 +88,8 @@ export default function App() {
                     <Route path="/productos" element={<Guard><Layout><Productos /></Layout></Guard>} />
                     <Route path="/ventas"    element={<Guard><Layout><Ventas /></Layout></Guard>} />
                     <Route path="/caja"      element={<Guard><Layout><Caja /></Layout></Guard>} />
+                    <Route path="/chats"     element={<Guard><Layout><Chats /></Layout></Guard>} />
+                    <Route path="/whatsapp"  element={<Guard><Layout><WhatsApp /></Layout></Guard>} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
             </BrowserRouter>

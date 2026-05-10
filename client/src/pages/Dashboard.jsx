@@ -15,9 +15,16 @@ function Card({ emoji, label, value, color }) {
 
 export default function Dashboard() {
     const [data, setData] = useState(null);
+    const [error, setError] = useState('');
 
-    useEffect(() => { api('/dashboard').then(d => d.ok && setData(d)); }, []);
+    useEffect(() => {
+        api('/dashboard').then(d => {
+            if (d.ok) setData(d);
+            else setError(d.msg || 'Error cargando dashboard');
+        });
+    }, []);
 
+    if (error) return <div style={{ padding: 40, color: '#e74c3c', background: '#fff', borderRadius: 12, margin: 24 }}>⚠️ {error}</div>;
     if (!data) return <div style={{ padding: 40, color: '#888' }}>Cargando...</div>;
 
     return (
@@ -28,13 +35,15 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16, marginBottom: 32 }}>
                 <Card emoji="💰" label="Ingresos hoy"    value={fmt(data.hoy.ingresos)}  color="#25d366" />
                 <Card emoji="🛒" label="Ventas hoy"      value={data.hoy.ventas}          color="#3498db" />
+                <Card emoji="💬" label="Chats hoy"       value={data.chats_hoy}           color="#9b59b6" />
                 <Card emoji="⏳" label="Pendientes"       value={data.pendientes}          color="#f39c12" />
             </div>
 
             <h3 style={{ marginBottom: 12, color: '#888', fontWeight: 600 }}>ESTE MES</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16, marginBottom: 32 }}>
-                <Card emoji="📈" label="Ingresos del mes" value={fmt(data.mes.ingresos)} color="#9b59b6" />
+                <Card emoji="📈" label="Ingresos del mes" value={fmt(data.mes.ingresos)} color="#e67e22" />
                 <Card emoji="📦" label="Ventas del mes"   value={data.mes.ventas}         color="#e74c3c" />
+                <Card emoji="👥" label="Chats totales"    value={data.chats_total}        color="#1abc9c" />
             </div>
 
             {data.top_productos?.length > 0 && (

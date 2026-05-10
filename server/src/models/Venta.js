@@ -9,6 +9,7 @@ const Venta = sequelize.define('Venta', {
     comprobante_url: { type: DataTypes.TEXT },
     estado:          { type: DataTypes.ENUM('pendiente','completada','rechazada'), defaultValue: 'pendiente' },
     link_enviado:    { type: DataTypes.TEXT },
+    email_cliente:   { type: DataTypes.STRING(200) },
     notas:           { type: DataTypes.TEXT },
     fecha:           { type: DataTypes.DATEONLY, defaultValue: DataTypes.NOW },
 }, { timestamps: true });

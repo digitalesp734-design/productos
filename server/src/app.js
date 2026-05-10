@@ -12,6 +12,8 @@ const bcrypt    = require('bcryptjs');
 const sequelize = require('./config/db');
 const { Usuario, Producto } = require('./models');
 
+const waClient = require('./services/whatsappClient');
+
 const app    = express();
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -83,9 +85,10 @@ async function iniciar(intentos = 5) {
     for (let i = 1; i <= intentos; i++) {
         try {
             await sequelize.authenticate();
-            await sequelize.sync();
+            await sequelize.sync({ alter: true });
             await seed();
             app.listen(PORT, '0.0.0.0', () => console.log(`🛒 Product Digital corriendo en puerto ${PORT}`));
+            waClient.iniciar();
             return;
         } catch (err) {
             console.error(`Intento ${i}/${intentos}: ${err.message}`);
