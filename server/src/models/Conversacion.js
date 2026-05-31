@@ -9,6 +9,7 @@ const Conversacion = sequelize.define('Conversacion', {
     email_cliente:   { type: DataTypes.STRING(200) },
     ultimo_mensaje:  { type: DataTypes.TEXT },
     historial:       { type: DataTypes.JSON, defaultValue: [] },
+    notas:           { type: DataTypes.JSON, defaultValue: {} },
 }, { timestamps: true });
 
 module.exports = Conversacion;

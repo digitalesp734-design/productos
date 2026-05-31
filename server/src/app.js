@@ -13,6 +13,8 @@ const sequelize = require('./config/db');
 const { Usuario, Producto } = require('./models');
 
 const waClient = require('./services/whatsappClient');
+const { iniciarFollowUpService }       = require('./services/followUpService');
+const { iniciarTelegramReportService } = require('./services/telegramReportService');
 
 const app    = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -89,6 +91,8 @@ async function iniciar(intentos = 5) {
             await seed();
             app.listen(PORT, '0.0.0.0', () => console.log(`🛒 Product Digital corriendo en puerto ${PORT}`));
             waClient.iniciar();
+            iniciarFollowUpService();
+            iniciarTelegramReportService();
             return;
         } catch (err) {
             console.error(`Intento ${i}/${intentos}: ${err.message}`);
