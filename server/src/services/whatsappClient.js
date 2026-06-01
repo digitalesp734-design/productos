@@ -5,8 +5,31 @@ const QRCode = require('qrcode');
 let sock = null;
 let qrData = null;
 let status = 'disconnected';
+let preKeysReady = false;       // true 20s después de conectar (pre-keys subidas)
+const msgQueue = [];            // mensajes recibidos antes de que las pre-keys estén listas
 
-const AUTH_FOLDER = process.env.WA_AUTH_FOLDER || path.join(process.cwd(), 'wa_auth');
+// Detectar automáticamente la ruta del volumen de Railway
+function detectAuthFolder() {
+    const envFolder = process.env.WA_AUTH_FOLDER;
+    if (envFolder && envFolder !== '/app/wa_auth') return envFolder;
+    // Buscar ruta del volumen Railway (/data, /var/data, /mnt/data)
+    const candidates = ['/data/wa_auth', '/var/data/wa_auth', '/mnt/wa_auth'];
+    for (const c of candidates) {
+        try {
+            fs.mkdirSync(path.dirname(c), { recursive: true });
+            // Test de escritura
+            fs.writeFileSync(path.join(path.dirname(c), '.test'), '1');
+            fs.unlinkSync(path.join(path.dirname(c), '.test'));
+            console.log('📁 Usando volumen persistente:', c);
+            return c;
+        } catch {}
+    }
+    // Fallback a /app/wa_auth
+    console.log('📁 Usando /app/wa_auth (no persistente entre deploys)');
+    return path.join(process.cwd(), 'wa_auth');
+}
+
+const AUTH_FOLDER = detectAuthFolder();
 
 function getClient() { return sock; }
 function getQR()     { return qrData; }
@@ -89,7 +112,22 @@ async function iniciar() {
         if (connection === 'open') {
             status = 'ready';
             qrData = null;
-            console.log('✅ WhatsApp conectado y listo!');
+            preKeysReady = false;
+            console.log('✅ WhatsApp conectado — esperando 20s para pre-keys...');
+            // WhatsApp necesita ~15-20s para subir pre-keys de cifrado antes de poder enviar
+            setTimeout(async () => {
+                preKeysReady = true;
+                console.log('✅ Pre-keys listas — bot 100% operativo');
+                // Procesar mensajes que llegaron durante la espera
+                if (msgQueue.length > 0) {
+                    console.log(`📨 Procesando ${msgQueue.length} mensajes en cola...`);
+                    for (const data of msgQueue) {
+                        try { const { procesarMensaje } = require('./botService'); await procesarMensaje(data); }
+                        catch (e) { console.error('Error procesando cola:', e.message); }
+                    }
+                    msgQueue.length = 0;
+                }
+            }, 20000);
         }
     });
 
@@ -101,8 +139,6 @@ async function iniciar() {
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
 
             try {
-                const { procesarMensaje } = require('./botService');
-                // Pasar el JID completo — Baileys necesita el remoteJid exacto para enviar
                 const numero = jid;
                 const nombre = msg.pushName || '';
 
@@ -115,21 +151,24 @@ async function iniciar() {
                 if (msg.message?.imageMessage || msg.message?.documentMessage) {
                     tipo = 'image';
                     texto = msg.message?.imageMessage?.caption || '';
-                    try {
-                        mediaBuffer = await downloadMediaMessage(msg, 'buffer', {});
-                    } catch (e) {
-                        console.error('Error descargando imagen:', e.message);
-                    }
+                    try { mediaBuffer = await downloadMediaMessage(msg, 'buffer', {}); }
+                    catch (e) { console.error('Error descargando imagen:', e.message); }
                 } else if (msg.message?.audioMessage) {
                     tipo = 'audio';
-                    try {
-                        mediaBuffer = await downloadMediaMessage(msg, 'buffer', {});
-                    } catch (e) {
-                        console.error('Error descargando audio:', e.message);
-                    }
+                    try { mediaBuffer = await downloadMediaMessage(msg, 'buffer', {}); }
+                    catch (e) { console.error('Error descargando audio:', e.message); }
                 }
 
-                await procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer });
+                const msgData = { numero, nombre, tipo, texto, mediaBuffer };
+
+                if (!preKeysReady) {
+                    // Pre-keys aún subiéndose — encolar para procesar después
+                    console.log('⏳ Mensaje recibido durante inicialización, encolado...');
+                    msgQueue.push(msgData);
+                } else {
+                    const { procesarMensaje } = require('./botService');
+                    await procesarMensaje(msgData);
+                }
             } catch (e) {
                 console.error('Error procesando mensaje WA:', e.message);
             }
