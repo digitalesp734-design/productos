@@ -276,7 +276,9 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     // ── Imagen: puede ser comprobante ─────────────────────────────────────────
     if (tipo === 'image' && mediaBuffer) {
-        if (estado === 'esperando_comprobante' && conv.producto_id) {
+        // Aceptar comprobante si tiene producto_id — sin importar el estado
+        // (el flujo de IA no actualiza estado a 'esperando_comprobante')
+        if (conv.producto_id) {
             const producto = await Producto.findByPk(conv.producto_id);
             if (!producto) {
                 await enviarTexto(numero, 'Error interno. Escribe *menú* para reiniciar.');
@@ -372,10 +374,10 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
-    // Capturar email
+    // Capturar email — también funciona en flujo IA (no solo 'esperando_email')
     const emailMatch = msg.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
-    if (emailMatch && estado === 'esperando_email' && conv.producto_id) {
-        const email   = emailMatch[0].toLowerCase();
+    if (emailMatch && conv.producto_id && !conv.email_cliente) {
+        const email    = emailMatch[0].toLowerCase();
         const producto = await Producto.findByPk(conv.producto_id);
         await conv.update({ estado: 'esperando_comprobante', email_cliente: email });
         const respuesta = mensajePago(producto);
@@ -387,15 +389,20 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     // ── Todo lo demás: IA con metodología de dolor ────────────────────────────
     const iaRespuesta = await respuestaIA(msg, conv, productos);
     if (iaRespuesta) {
-        // Si la IA menciona un producto y estamos en menú, actualizar estado
-        if (['menu', 'nuevo'].includes(estado)) {
-            for (const p of productos) {
-                if (iaRespuesta.includes(p.nombre)) {
-                    await conv.update({ producto_id: p.id });
-                    break;
-                }
+        const updateData = {};
+        // Si la IA menciona un producto, guardar producto_id
+        for (const p of productos) {
+            if (iaRespuesta.includes(p.nombre) && !conv.producto_id) {
+                updateData.producto_id = p.id;
+                break;
             }
         }
+        // Si la IA está dando datos de pago (Nequi, comprobante), pasar a esperando_comprobante
+        const mencionaPago = /nequi|daviplata|comprobante|transferencia|bre-b|llave/i.test(iaRespuesta);
+        if (mencionaPago && conv.producto_id) {
+            updateData.estado = 'esperando_comprobante';
+        }
+        if (Object.keys(updateData).length) await conv.update(updateData);
         await enviarTexto(numero, iaRespuesta);
         await guardarHistorial(conv, 'bot', iaRespuesta);
     } else {
