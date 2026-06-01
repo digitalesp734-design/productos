@@ -354,8 +354,35 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     const productos = await getProductos();
 
-    // ── Comandos directos ─────────────────────────────────────────────────────
-    if (['menú', 'menu', 'hola', 'inicio', 'start', 'hi', 'buenos días', 'buenas'].includes(msgLower) || estado === 'nuevo') {
+    // ── Saludo: si tiene historial previo, Sofía retoma la conversación ──────────
+    const esComandoMenu = ['menú', 'menu', 'inicio', 'start', 'menú principal'].includes(msgLower);
+    const esSaludo = ['hola', 'hi', 'buenos días', 'buenas', 'buenas noches', 'buenas tardes', 'buen día'].includes(msgLower);
+    const tieneHistorial = (conv.historial || []).length > 1;
+
+    if (esComandoMenu || estado === 'nuevo') {
+        const respuesta = menuTexto(productos);
+        await conv.update({ estado: 'menu', producto_id: null });
+        await enviarTexto(numero, respuesta);
+        await guardarHistorial(conv, 'bot', respuesta);
+        return;
+    }
+
+    // Saludo con historial → Sofía retoma con contexto en vez de mostrar menú genérico
+    if (esSaludo && tieneHistorial) {
+        const contextoSaludo = estado === 'esperando_comprobante'
+            ? 'El cliente regresa. Estaba a punto de pagar. Recuérdale amablemente que quedó pendiente el comprobante de pago y anímate a cerrar la venta.'
+            : conv.producto_id
+            ? 'El cliente regresa. Muéstrate contento de verlo de nuevo y retoma la conversación donde quedaron, recordándole el producto que le interesaba.'
+            : 'El cliente regresa. Salúdalo con calidez y pregúntale en qué le puedes ayudar hoy.';
+        const iaRespuesta = await respuestaIA(contextoSaludo, conv, productos);
+        const respuesta = iaRespuesta || menuTexto(productos);
+        await enviarTexto(numero, respuesta);
+        await guardarHistorial(conv, 'bot', respuesta);
+        return;
+    }
+
+    // Saludo sin historial → menú normal
+    if (esSaludo) {
         const respuesta = menuTexto(productos);
         await conv.update({ estado: 'menu', producto_id: null });
         await enviarTexto(numero, respuesta);
