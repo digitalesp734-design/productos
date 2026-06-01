@@ -105,21 +105,34 @@ async function iniciar() {
 
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason,
             downloadMediaMessage, Browsers, fetchLatestBaileysVersion,
-            makeInMemoryStore } = baileys;
+            makeInMemoryStore, makeCacheableSignalKeyStore } = baileys;
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
-    const { version } = await fetchLatestBaileysVersion();
-    console.log('📱 Usando WhatsApp Web versión:', version.join('.'));
 
-    // Store en memoria para manejo automático de contactos, chats y sesiones
+    // v7 requiere fetchLatestBaileysVersion para que use el bridge de Rust correcto
+    const { version } = await fetchLatestBaileysVersion();
+    console.log('📱 Baileys v7 — versión WA:', version.join('.'));
+
+    // Store en memoria para manejo automático de contactos/chats
     const store = makeInMemoryStore ? makeInMemoryStore({}) : null;
+
+    // msgRetryCounterCache para manejo correcto de reintentos (requerido en v7)
+    const { LRUCache } = require('lru-cache');
+    const msgRetryCounterCache = new LRUCache({ max: 100 });
 
     sock = makeWASocket({
         version,
-        auth: state,
+        // v7: usar makeCacheableSignalKeyStore para Signal Protocol correcto con @lid
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore
+                ? makeCacheableSignalKeyStore(state.keys, require('pino')({ level: 'silent' }))
+                : state.keys,
+        },
         browser: Browsers.ubuntu('Chrome'),
         printQRInTerminal: false,
         syncFullHistory: true,
+        msgRetryCounterCache,
         getMessage: async () => undefined,
     });
 
