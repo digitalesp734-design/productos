@@ -8,28 +8,63 @@ let status = 'disconnected';
 let preKeysReady = false;       // true 20s después de conectar (pre-keys subidas)
 const msgQueue = [];            // mensajes recibidos antes de que las pre-keys estén listas
 
+// Cache LID → JID de teléfono (@s.whatsapp.net)
+// Se llena con contacts.upsert durante el sync de historial
+const lidCache = {};
+
 // Detectar automáticamente la ruta del volumen de Railway
 function detectAuthFolder() {
     const envFolder = process.env.WA_AUTH_FOLDER;
     if (envFolder && envFolder !== '/app/wa_auth') return envFolder;
-    // Buscar ruta del volumen Railway (/data, /var/data, /mnt/data)
     const candidates = ['/data/wa_auth', '/var/data/wa_auth', '/mnt/wa_auth'];
     for (const c of candidates) {
         try {
             fs.mkdirSync(path.dirname(c), { recursive: true });
-            // Test de escritura
             fs.writeFileSync(path.join(path.dirname(c), '.test'), '1');
             fs.unlinkSync(path.join(path.dirname(c), '.test'));
             console.log('📁 Usando volumen persistente:', c);
             return c;
         } catch {}
     }
-    // Fallback a /app/wa_auth
     console.log('📁 Usando /app/wa_auth (no persistente entre deploys)');
     return path.join(process.cwd(), 'wa_auth');
 }
 
 const AUTH_FOLDER = detectAuthFolder();
+const LID_CACHE_FILE = path.join(AUTH_FOLDER, 'lid_cache.json');
+
+// Cargar cache LID persistido del volumen
+function loadLidCache() {
+    try {
+        if (fs.existsSync(LID_CACHE_FILE)) {
+            const data = JSON.parse(fs.readFileSync(LID_CACHE_FILE, 'utf-8'));
+            Object.assign(lidCache, data);
+            console.log(`📞 Cache LID cargado: ${Object.keys(lidCache).length} contactos`);
+        }
+    } catch {}
+}
+
+function saveLidCache() {
+    try {
+        fs.mkdirSync(AUTH_FOLDER, { recursive: true });
+        fs.writeFileSync(LID_CACHE_FILE, JSON.stringify(lidCache));
+    } catch {}
+}
+
+// Resolver @lid → @s.whatsapp.net usando el cache
+// Enviar a @s.whatsapp.net evita error 463 (WhatsApp no puede establecer sesión E2E con @lid)
+function resolveLid(jid) {
+    if (!jid || !jid.endsWith('@lid')) return jid;
+    const resolved = lidCache[jid];
+    if (resolved) {
+        console.log(`📞 LID resuelto: ${jid} → ${resolved}`);
+        return resolved;
+    }
+    console.log(`⚠️  LID sin resolver: ${jid} (enviando igual, puede fallar)`);
+    return jid;
+}
+
+loadLidCache();
 
 function getClient() { return sock; }
 function getQR()     { return qrData; }
@@ -66,10 +101,10 @@ async function iniciar() {
         return;
     }
 
-    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, Browsers, fetchLatestBaileysVersion } = baileys;
+    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason,
+            downloadMediaMessage, Browsers, fetchLatestBaileysVersion } = baileys;
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
-
     const { version } = await fetchLatestBaileysVersion();
     console.log('📱 Usando WhatsApp Web versión:', version.join('.'));
 
@@ -82,6 +117,41 @@ async function iniciar() {
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    // Construir cache LID → teléfono desde sync de contactos
+    // WhatsApp envía estos eventos durante el primer sync de historial
+    sock.ev.on('contacts.upsert', (contacts) => {
+        let updated = 0;
+        for (const c of contacts) {
+            // c.id es el JID principal (@s.whatsapp.net o @lid)
+            // c.lid es el LID cuando el JID principal es el teléfono
+            if (c.lid && c.id && c.id.endsWith('@s.whatsapp.net')) {
+                lidCache[c.lid] = c.id;
+                updated++;
+            }
+            // También mapear al revés: si el id ya es @lid, registrar ambos lados
+            if (c.id && c.id.endsWith('@lid')) {
+                // No tenemos el teléfono directamente — ignorar por ahora
+            }
+        }
+        if (updated > 0) {
+            console.log(`📞 Cache LID actualizado: +${updated} contactos (total ${Object.keys(lidCache).length})`);
+            saveLidCache();
+        }
+    });
+
+    sock.ev.on('contacts.update', (updates) => {
+        let updated = 0;
+        for (const c of updates) {
+            if (c.lid && c.id && c.id.endsWith('@s.whatsapp.net')) {
+                lidCache[c.lid] = c.id;
+                updated++;
+            }
+        }
+        if (updated > 0) {
+            saveLidCache();
+        }
+    });
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -99,7 +169,6 @@ async function iniciar() {
             const loggedOut = code === DisconnectReason.loggedOut;
             console.log('WhatsApp desconectado, código:', code);
             if (loggedOut) {
-                // Sesión revocada → limpiar credenciales y generar nuevo QR
                 console.log('Sesión cerrada por WhatsApp — generando nuevo QR...');
                 limpiarCredenciales();
                 setTimeout(iniciar, 3000);
@@ -113,12 +182,10 @@ async function iniciar() {
             status = 'ready';
             qrData = null;
             preKeysReady = false;
-            console.log('✅ WhatsApp conectado — esperando 20s para pre-keys...');
-            // WhatsApp necesita ~15-20s para subir pre-keys de cifrado antes de poder enviar
+            console.log('✅ WhatsApp conectado — esperando 30s para pre-keys y sync...');
             setTimeout(async () => {
                 preKeysReady = true;
-                console.log('✅ Pre-keys listas — bot 100% operativo');
-                // Procesar mensajes que llegaron durante la espera
+                console.log(`✅ Bot operativo — cache LID: ${Object.keys(lidCache).length} contactos`);
                 if (msgQueue.length > 0) {
                     console.log(`📨 Procesando ${msgQueue.length} mensajes en cola...`);
                     for (const data of msgQueue) {
@@ -127,7 +194,7 @@ async function iniciar() {
                     }
                     msgQueue.length = 0;
                 }
-            }, 20000);
+            }, 30000);
         }
     });
 
@@ -162,7 +229,6 @@ async function iniciar() {
                 const msgData = { numero, nombre, tipo, texto, mediaBuffer };
 
                 if (!preKeysReady) {
-                    // Pre-keys aún subiéndose — encolar para procesar después
                     console.log('⏳ Mensaje recibido durante inicialización, encolado...');
                     msgQueue.push(msgData);
                 } else {
@@ -181,4 +247,4 @@ async function getQRImage() {
     try { return await QRCode.toDataURL(qrData); } catch (e) { return null; }
 }
 
-module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart };
+module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid };
