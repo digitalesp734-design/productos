@@ -119,11 +119,15 @@ function menuTexto(productos) {
 }
 
 function infoPago(monto) {
-    const nequi  = process.env.NEQUI_NUMERO  || '';
-    const llaves = process.env.LLAVES_EMAIL  || '';
+    const nequi     = process.env.NEQUI_NUMERO    || '';
+    const daviplata = process.env.DAVIPLATA_NUMERO || '';
+    const llave     = process.env.LLAVE_NUMERO     || '';
+    const nombre    = process.env.PAGO_NOMBRE      || '';
     let txt = `💳 *Formas de pago — ${fmt(monto)}:*\n\n`;
-    if (nequi)  txt += `📱 *Nequi:* ${nequi}\n`;
-    if (llaves) txt += `🔑 *Llaves / Transferencia:* ${llaves}\n`;
+    if (nequi)     txt += `📱 *Nequi:* ${nequi}\n`;
+    if (daviplata) txt += `📱 *Daviplata:* ${daviplata}\n`;
+    if (llave)     txt += `🔑 *Bre-b / Llave:* ${llave}\n`;
+    if (nombre)    txt += `👤 *A nombre de:* ${nombre}\n`;
     return txt;
 }
 
@@ -319,7 +323,10 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
                 conv.email_cliente
             );
 
-            const respuesta = `✅ *¡Pago confirmado!* Gracias por tu compra 🎉\n\n🔗 Aquí está tu acceso a *${producto.nombre}*:\n${producto.link_drive}\n\n📌 Guarda este enlace. Es de uso personal y de por vida.\n¡Que lo disfrutes! 🙌`;
+            const esN8n = producto.nombre.toLowerCase().includes('n8n') || producto.nombre.toLowerCase().includes('agente');
+            const respuesta = esN8n
+                ? `✅ *¡Pago confirmado!* Gracias por tu compra 🎉\n\n1️⃣ Aquí tienes tus accesos 👇\n👉 Ingresa con el correo que registramos. Si la carpeta aparece vacía, espera 1 minuto mientras cargan los archivos.\n\n${producto.link_drive}\n\n2️⃣ 🛑 Te agradezco si nos dejas un comentario en nuestra publicación 😉\nhttps://www.facebook.com/share/p/1GEdB3GX1L/\n\n3️⃣ *IMPORTANTE* — Antes de instalar, mira este video de YouTube que explica cómo tener un VPS gratuito por 6 meses 💻\nhttps://www.youtube.com/watch?v=xv_nfpnXiL8\n\n4️⃣ VPS gratis 6 meses 👆 (mira primero el video de arriba)\nhttps://aws.amazon.com/es/free/`
+                : `✅ *¡Pago confirmado!* Gracias por tu compra 🎉\n\n🔗 Aquí está tu acceso a *${producto.nombre}*:\n${producto.link_drive}\n\n📌 Guarda este enlace. Es de uso personal y de por vida.\n🛑 Si nos dejas un comentario te lo agradecemos mucho 😉\nhttps://www.facebook.com/share/p/1GEdB3GX1L/\n\n¡Que lo disfrutes! 🙌`;
             await enviarTexto(numero, respuesta);
             await guardarHistorial(conv, 'bot', respuesta);
             return;
