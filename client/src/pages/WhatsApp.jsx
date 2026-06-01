@@ -8,8 +8,10 @@ const STATUS_LABEL = {
 };
 
 export default function WhatsApp() {
-    const [data, setData] = useState({ status: 'disconnected', qrImage: null });
-    const [loading, setLoading] = useState(true);
+    const [data, setData]         = useState({ status: 'disconnected', qrImage: null });
+    const [loading, setLoading]   = useState(true);
+    const [restarting, setRestarting] = useState(false);
+    const [msg, setMsg]           = useState('');
 
     const fetchStatus = async () => {
         const r = await api('/wa/status');
@@ -23,12 +25,29 @@ export default function WhatsApp() {
         return () => clearInterval(interval);
     }, []);
 
+    const handleRestart = async () => {
+        setRestarting(true);
+        setMsg('');
+        try {
+            const r = await api('/wa/restart', { method: 'POST' });
+            setMsg(r.mensaje || 'Reiniciando...');
+        } catch {
+            setMsg('Error al reiniciar');
+        }
+        // Esperar 5 seg y volver a consultar
+        setTimeout(() => {
+            setRestarting(false);
+            fetchStatus();
+        }, 5000);
+    };
+
     const info = STATUS_LABEL[data.status] || STATUS_LABEL.disconnected;
 
     return (
-        <div style={{ padding: '2rem', maxWidth: 500, margin: '0 auto' }}>
+        <div style={{ padding: '2rem', maxWidth: 520, margin: '0 auto' }}>
             <h2 style={{ marginBottom: '1.5rem' }}>WhatsApp Bot</h2>
 
+            {/* Estado */}
             <div style={{
                 background: '#1e293b', borderRadius: 12, padding: '1.5rem',
                 marginBottom: '1.5rem', textAlign: 'center'
@@ -44,10 +63,11 @@ export default function WhatsApp() {
 
                 {loading && <p style={{ color: '#94a3b8' }}>Cargando...</p>}
 
+                {/* QR listo para escanear */}
                 {data.status === 'qr' && data.qrImage && (
                     <div>
                         <p style={{ color: '#94a3b8', marginBottom: '1rem' }}>
-                            Abre WhatsApp en tu celular → Dispositivos vinculados → Vincular dispositivo → Escanea este QR
+                            WhatsApp → Dispositivos vinculados → Vincular dispositivo → Escanea
                         </p>
                         <img
                             src={data.qrImage}
@@ -55,11 +75,12 @@ export default function WhatsApp() {
                             style={{ width: 220, height: 220, borderRadius: 8, background: 'white', padding: 8 }}
                         />
                         <p style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                            Se actualiza automáticamente
+                            Se actualiza automáticamente cada 4 segundos
                         </p>
                     </div>
                 )}
 
+                {/* Conectado */}
                 {data.status === 'ready' && (
                     <div style={{ color: '#94a3b8' }}>
                         <p>El bot está activo y respondiendo mensajes.</p>
@@ -69,23 +90,61 @@ export default function WhatsApp() {
                     </div>
                 )}
 
+                {/* Desconectado */}
                 {data.status === 'disconnected' && !loading && (
-                    <p style={{ color: '#94a3b8' }}>
-                        El servidor está iniciando WhatsApp. Espera unos segundos y el QR aparecerá aquí.
+                    <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
+                        La sesión de WhatsApp está cerrada. Haz clic en <strong>Regenerar QR</strong> para reconectar.
                     </p>
+                )}
+
+                {/* Generando */}
+                {restarting && (
+                    <p style={{ color: '#f59e0b', marginTop: '0.5rem' }}>
+                        ⏳ Generando nuevo QR, espera unos segundos...
+                    </p>
+                )}
+                {msg && !restarting && (
+                    <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '0.5rem' }}>{msg}</p>
                 )}
             </div>
 
+            {/* Botón regenerar QR */}
+            {data.status !== 'ready' && (
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                    <button
+                        onClick={handleRestart}
+                        disabled={restarting}
+                        style={{
+                            background: restarting ? '#334155' : '#5A00B8',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            padding: '0.75rem 2rem',
+                            fontSize: '1rem',
+                            fontWeight: 600,
+                            cursor: restarting ? 'not-allowed' : 'pointer',
+                            transition: 'background 0.2s',
+                            width: '100%',
+                        }}
+                    >
+                        {restarting ? '⏳ Reiniciando...' : '🔄 Regenerar QR'}
+                    </button>
+                </div>
+            )}
+
+            {/* Instrucciones */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: '1.5rem' }}>
-                <h3 style={{ marginBottom: '0.75rem', fontSize: '0.95rem' }}>Instrucciones</h3>
-                <ol style={{ color: '#94a3b8', fontSize: '0.88rem', lineHeight: 1.7, paddingLeft: '1.2rem' }}>
-                    <li>Inicia el servidor local</li>
-                    <li>Espera que aparezca el QR arriba</li>
+                <h3 style={{ marginBottom: '0.75rem', fontSize: '0.95rem' }}>Cómo conectar</h3>
+                <ol style={{ color: '#94a3b8', fontSize: '0.88rem', lineHeight: 1.8, paddingLeft: '1.2rem' }}>
+                    <li>Haz clic en <strong>Regenerar QR</strong></li>
+                    <li>Espera 5-10 segundos hasta que aparezca el QR</li>
                     <li>Abre WhatsApp en tu celular</li>
                     <li>Ve a <strong>Dispositivos vinculados → Vincular dispositivo</strong></li>
-                    <li>Escanea el QR</li>
-                    <li>El bot queda activo en tu número personal</li>
+                    <li>Escanea el QR — el bot queda activo</li>
                 </ol>
+                <p style={{ color: '#475569', fontSize: '0.8rem', marginTop: '1rem' }}>
+                    Si el QR expira antes de escanearlo, vuelve a hacer clic en Regenerar QR.
+                </p>
             </div>
         </div>
     );

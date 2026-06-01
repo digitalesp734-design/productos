@@ -1,13 +1,38 @@
 const path = require('path');
+const fs   = require('fs');
 const QRCode = require('qrcode');
 
 let sock = null;
 let qrData = null;
 let status = 'disconnected';
 
+const AUTH_FOLDER = process.env.WA_AUTH_FOLDER || path.join(process.cwd(), 'wa_auth');
+
 function getClient() { return sock; }
 function getQR()     { return qrData; }
 function getStatus() { return status; }
+
+function limpiarCredenciales() {
+    try {
+        if (fs.existsSync(AUTH_FOLDER)) {
+            fs.readdirSync(AUTH_FOLDER).forEach(f => {
+                try { fs.unlinkSync(path.join(AUTH_FOLDER, f)); } catch {}
+            });
+        }
+        console.log('🗑️  Credenciales WA eliminadas — se generará nuevo QR');
+    } catch (e) {
+        console.error('Error limpiando credenciales:', e.message);
+    }
+}
+
+async function resetAndRestart() {
+    status = 'disconnected';
+    qrData = null;
+    if (sock) { try { await sock.logout(); } catch {} sock = null; }
+    limpiarCredenciales();
+    await new Promise(r => setTimeout(r, 1500));
+    await iniciar();
+}
 
 async function iniciar() {
     let baileys;
@@ -20,8 +45,7 @@ async function iniciar() {
 
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, Browsers, fetchLatestBaileysVersion } = baileys;
 
-    const authFolder = process.env.WA_AUTH_FOLDER || path.join(process.cwd(), 'wa_auth');
-    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
     const { version } = await fetchLatestBaileysVersion();
     console.log('📱 Usando WhatsApp Web versión:', version.join('.'));
@@ -51,7 +75,12 @@ async function iniciar() {
             const code = lastDisconnect?.error?.output?.statusCode;
             const loggedOut = code === DisconnectReason.loggedOut;
             console.log('WhatsApp desconectado, código:', code);
-            if (!loggedOut) {
+            if (loggedOut) {
+                // Sesión revocada → limpiar credenciales y generar nuevo QR
+                console.log('Sesión cerrada por WhatsApp — generando nuevo QR...');
+                limpiarCredenciales();
+                setTimeout(iniciar, 3000);
+            } else {
                 console.log('Reconectando en 5 segundos...');
                 setTimeout(iniciar, 5000);
             }
@@ -112,4 +141,4 @@ async function getQRImage() {
     try { return await QRCode.toDataURL(qrData); } catch (e) { return null; }
 }
 
-module.exports = { iniciar, getClient, getQR, getQRImage, getStatus };
+module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart };
