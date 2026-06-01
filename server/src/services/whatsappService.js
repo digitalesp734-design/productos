@@ -1,29 +1,26 @@
-const { getClient, resolveLid, getLastMsg } = require('./whatsappClient');
+const { getClient, getLastMsg } = require('./whatsappClient');
 
 async function enviarTexto(numero, texto) {
     const sock = getClient();
     if (!sock) { console.error('WhatsApp no conectado'); return null; }
 
-    const originalJid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
-    const sendJid = resolveLid(originalJid);
+    // Usar el JID EXACTO que vino en el mensaje recibido (@lid o @s.whatsapp.net)
+    // La sesión Signal se establece al recibir y está keyed por ese JID.
+    // Si resolviéramos @lid → @s.whatsapp.net, no encontraría la sesión.
+    const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
 
-    // Pasar el mensaje original completo como quoted (no un mock)
-    // Esto usa la sesión E2E real establecida al recibir el mensaje
-    const quoted = getLastMsg(originalJid);
+    // Pasar el mensaje original completo para quoted reply
+    const quoted = getLastMsg(numero.includes('@') ? numero : `${numero}@s.whatsapp.net`);
     const sendOpts = quoted ? { quoted } : {};
 
-    if (quoted) {
-        console.log('📤 Enviando como quoted reply →', sendJid);
-    } else {
-        console.log('📤 Enviando directo →', sendJid);
-    }
+    console.log('📤 Enviando a', jid, quoted ? '(quoted)' : '(directo)');
 
     try {
-        const result = await sock.sendMessage(sendJid, { text: texto }, sendOpts);
-        console.log('✅ Enviado a', sendJid);
+        const result = await sock.sendMessage(jid, { text: texto }, sendOpts);
+        console.log('✅ Enviado a', jid);
         return result;
     } catch (e) {
-        console.error('❌ Error enviando a', sendJid, ':', e.message);
+        console.error('❌ Error enviando a', jid, ':', e.message);
         return null;
     }
 }
