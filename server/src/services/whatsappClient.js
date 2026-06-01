@@ -120,7 +120,9 @@ async function iniciar() {
         getMessage: async () => ({ conversation: '' }),
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    // saveCreds guardado en variable para poder removerlo antes de limpiar creds
+    const onCredsUpdate = saveCreds;
+    sock.ev.on('creds.update', onCredsUpdate);
 
     // Construir cache LID → teléfono durante sync de contactos
     sock.ev.on('contacts.upsert', (contacts) => {
@@ -164,9 +166,15 @@ async function iniciar() {
             const loggedOut = code === DisconnectReason.loggedOut;
             console.log('WhatsApp desconectado, código:', code);
             if (loggedOut) {
-                console.log('Sesión cerrada — generando nuevo QR...');
+                console.log('Sesión revocada — limpiando credenciales...');
+                // Remover saveCreds ANTES de limpiar para evitar que re-grabe las creds inválidas
+                try { sock.ev.removeAllListeners('creds.update'); } catch {}
                 limpiarCredenciales();
-                setTimeout(iniciar, 3000);
+                // Segunda limpieza 300ms después por si saveCreds async ya estaba corriendo
+                setTimeout(() => {
+                    limpiarCredenciales();
+                    iniciar();
+                }, 300);
             } else {
                 console.log('Reconectando en 5 segundos...');
                 setTimeout(iniciar, 5000);
