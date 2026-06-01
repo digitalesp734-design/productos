@@ -102,8 +102,8 @@ async function iniciar() {
 
             try {
                 const { procesarMensaje } = require('./botService');
-                // Extraer solo la parte numérica (compatible con @s.whatsapp.net y @lid)
-                const numero = jid.split('@')[0];
+                // Pasar el JID completo — Baileys necesita el remoteJid exacto para enviar
+                const numero = jid;
                 const nombre = msg.pushName || '';
 
                 let tipo = 'text';
