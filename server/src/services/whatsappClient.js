@@ -116,38 +116,65 @@ async function iniciar() {
         auth: state,
         browser: Browsers.ubuntu('Chrome'),
         printQRInTerminal: false,
-        syncFullHistory: false,
-        getMessage: async () => ({ conversation: '' }),
+        syncFullHistory: true,
+        getMessage: async () => undefined,
     });
 
     // saveCreds guardado en variable para poder removerlo antes de limpiar creds
     const onCredsUpdate = saveCreds;
     sock.ev.on('creds.update', onCredsUpdate);
 
-    // Construir cache LID → teléfono durante sync de contactos
-    sock.ev.on('contacts.upsert', (contacts) => {
+    // Construir cache LID → teléfono desde sync de historial y contactos
+    function procesarContactos(contacts, fuente) {
         let updated = 0;
         for (const c of contacts) {
+            // Caso 1: c.id es @s.whatsapp.net y c.lid es el @lid
             if (c.lid && c.id && c.id.endsWith('@s.whatsapp.net')) {
                 lidCache[c.lid] = c.id;
+                updated++;
+            }
+            // Caso 2: c.id es @lid — registrar también por si contacts.upsert usa id=@lid
+            if (c.id && c.id.endsWith('@lid') && c.phoneNumber) {
+                const phoneJid = `${c.phoneNumber}@s.whatsapp.net`;
+                lidCache[c.id] = phoneJid;
                 updated++;
             }
         }
         if (updated > 0) {
-            console.log(`📞 Cache LID: +${updated} mapeados (total ${Object.keys(lidCache).length})`);
+            console.log(`📞 [${fuente}] Cache LID: +${updated} mapeados (total ${Object.keys(lidCache).length})`);
             saveLidCache();
         }
+    }
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+        if (contacts.length > 0) {
+            // Log primeros 2 contactos para diagnóstico
+            console.log('📋 contacts.upsert muestra:', JSON.stringify(contacts.slice(0,2)));
+        }
+        procesarContactos(contacts, 'contacts.upsert');
     });
 
-    sock.ev.on('contacts.update', (updates) => {
-        let updated = 0;
-        for (const c of updates) {
-            if (c.lid && c.id && c.id.endsWith('@s.whatsapp.net')) {
-                lidCache[c.lid] = c.id;
-                updated++;
+    sock.ev.on('contacts.update', (updates) => procesarContactos(updates, 'contacts.update'));
+
+    // Historia de mensajes — puede traer JIDs @s.whatsapp.net de chats anteriores
+    sock.ev.on('messaging-history.set', ({ contacts = [], chats = [] }) => {
+        console.log(`📚 History sync: ${contacts.length} contactos, ${chats.length} chats`);
+        if (contacts.length > 0) {
+            console.log('📋 History contacts muestra:', JSON.stringify(contacts.slice(0,2)));
+        }
+        procesarContactos(contacts, 'history-sync');
+        // Los chats también pueden tener info del JID real
+        let chatUpdated = 0;
+        for (const chat of chats) {
+            if (chat.id?.endsWith('@s.whatsapp.net') && chat.lidJid) {
+                lidCache[chat.lidJid] = chat.id;
+                chatUpdated++;
             }
         }
-        if (updated > 0) saveLidCache();
+        if (chatUpdated > 0) {
+            console.log(`📞 [history-chats] Cache LID: +${chatUpdated} mapeados`);
+            saveLidCache();
+        }
     });
 
     sock.ev.on('connection.update', async (update) => {
