@@ -102,7 +102,8 @@ async function iniciar() {
 
             try {
                 const { procesarMensaje } = require('./botService');
-                const numero = jid.replace('@s.whatsapp.net', '');
+                // Extraer solo la parte numérica (compatible con @s.whatsapp.net y @lid)
+                const numero = jid.split('@')[0];
                 const nombre = msg.pushName || '';
 
                 let tipo = 'text';
