@@ -1,23 +1,19 @@
-const { getClient, resolveLid, getLastMsgKey } = require('./whatsappClient');
+const { getClient, resolveLid, getLastMsg } = require('./whatsappClient');
 
 async function enviarTexto(numero, texto) {
     const sock = getClient();
     if (!sock) { console.error('WhatsApp no conectado'); return null; }
 
-    // JID original tal como llegó en el mensaje (puede ser @lid)
     const originalJid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
-
-    // Intentar resolver @lid → @s.whatsapp.net
     const sendJid = resolveLid(originalJid);
 
-    // Responder citando el último mensaje recibido de este contacto.
-    // Esto usa la sesión E2E ya establecida al recibir, evitando error 463
-    // que ocurre cuando WhatsApp no puede crear una sesión nueva para @lid.
-    const lastKey = getLastMsgKey(originalJid);
-    const sendOpts = {};
-    if (lastKey) {
-        sendOpts.quoted = { key: lastKey, message: { conversation: '' } };
-        console.log('📤 Enviando como respuesta citada →', sendJid);
+    // Pasar el mensaje original completo como quoted (no un mock)
+    // Esto usa la sesión E2E real establecida al recibir el mensaje
+    const quoted = getLastMsg(originalJid);
+    const sendOpts = quoted ? { quoted } : {};
+
+    if (quoted) {
+        console.log('📤 Enviando como quoted reply →', sendJid);
     } else {
         console.log('📤 Enviando directo →', sendJid);
     }

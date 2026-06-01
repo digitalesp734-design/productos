@@ -8,9 +8,8 @@ let status = 'disconnected';
 let preKeysReady = false;
 const msgQueue = [];
 
-// Última clave de mensaje recibido por JID — para respuestas citadas
-// Enviar como reply usa la sesión E2E ya establecida al recibir, evitando error 463
-const lastMsgKey = new Map();
+// Último mensaje completo recibido por JID — para respuestas citadas
+const lastMsg = new Map();
 
 // Cache LID → JID de teléfono
 const lidCache = {};
@@ -62,9 +61,9 @@ function resolveLid(jid) {
     return jid;
 }
 
-// Clave del último mensaje recibido por JID — para quoted reply
-function getLastMsgKey(jid) {
-    return lastMsgKey.get(jid) || null;
+// Mensaje completo recibido por JID — para quoted reply
+function getLastMsg(jid) {
+    return lastMsg.get(jid) || null;
 }
 
 loadLidCache();
@@ -105,11 +104,15 @@ async function iniciar() {
     }
 
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason,
-            downloadMediaMessage, Browsers, fetchLatestBaileysVersion } = baileys;
+            downloadMediaMessage, Browsers, fetchLatestBaileysVersion,
+            makeInMemoryStore } = baileys;
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
     const { version } = await fetchLatestBaileysVersion();
     console.log('📱 Usando WhatsApp Web versión:', version.join('.'));
+
+    // Store en memoria para manejo automático de contactos, chats y sesiones
+    const store = makeInMemoryStore ? makeInMemoryStore({}) : null;
 
     sock = makeWASocket({
         version,
@@ -123,6 +126,9 @@ async function iniciar() {
     // saveCreds guardado en variable para poder removerlo antes de limpiar creds
     const onCredsUpdate = saveCreds;
     sock.ev.on('creds.update', onCredsUpdate);
+
+    // Bind store al socket — gestiona contactos, chats y mensajes automáticamente
+    if (store) store.bind(sock.ev);
 
     // Construir cache LID → teléfono desde sync de historial y contactos
     function procesarContactos(contacts, fuente) {
@@ -235,8 +241,24 @@ async function iniciar() {
             const jid = msg.key.remoteJid || '';
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
 
-            // Guardar clave del último mensaje para poder responder citando
-            lastMsgKey.set(jid, msg.key);
+            // Guardar mensaje completo para quoted reply y resolución de LID desde store
+            lastMsg.set(jid, msg);
+
+            // Intentar resolver @lid desde el store de contactos
+            if (jid.endsWith('@lid') && store) {
+                const contacts = store.contacts || {};
+                for (const [phoneJid, contact] of Object.entries(contacts)) {
+                    if (phoneJid.endsWith('@s.whatsapp.net') &&
+                        (contact.lid === jid || contact.id === jid)) {
+                        if (!lidCache[jid]) {
+                            lidCache[jid] = phoneJid;
+                            console.log(`📞 [store] LID resuelto: ${jid} → ${phoneJid}`);
+                            saveLidCache();
+                        }
+                        break;
+                    }
+                }
+            }
 
             try {
                 const numero = jid;
@@ -280,4 +302,4 @@ async function getQRImage() {
     try { return await QRCode.toDataURL(qrData); } catch (e) { return null; }
 }
 
-module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid, getLastMsgKey };
+module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid, getLastMsg };
