@@ -1,19 +1,33 @@
-const { getClient, resolveLid } = require('./whatsappClient');
+const { getClient, resolveLid, getLastMsgKey } = require('./whatsappClient');
 
 async function enviarTexto(numero, texto) {
     const sock = getClient();
     if (!sock) { console.error('WhatsApp no conectado'); return null; }
 
-    // Resolver @lid → @s.whatsapp.net para evitar error 463
-    let jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
-    jid = resolveLid(jid);
+    // JID original tal como llegó en el mensaje (puede ser @lid)
+    const originalJid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
+
+    // Intentar resolver @lid → @s.whatsapp.net
+    const sendJid = resolveLid(originalJid);
+
+    // Responder citando el último mensaje recibido de este contacto.
+    // Esto usa la sesión E2E ya establecida al recibir, evitando error 463
+    // que ocurre cuando WhatsApp no puede crear una sesión nueva para @lid.
+    const lastKey = getLastMsgKey(originalJid);
+    const sendOpts = {};
+    if (lastKey) {
+        sendOpts.quoted = { key: lastKey, message: { conversation: '' } };
+        console.log('📤 Enviando como respuesta citada →', sendJid);
+    } else {
+        console.log('📤 Enviando directo →', sendJid);
+    }
 
     try {
-        const result = await sock.sendMessage(jid, { text: texto });
-        console.log('✅ Enviado a', jid);
+        const result = await sock.sendMessage(sendJid, { text: texto }, sendOpts);
+        console.log('✅ Enviado a', sendJid);
         return result;
     } catch (e) {
-        console.error('❌ Error enviando a', jid, ':', e.message);
+        console.error('❌ Error enviando a', sendJid, ':', e.message);
         return null;
     }
 }

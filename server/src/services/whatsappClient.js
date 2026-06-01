@@ -5,14 +5,16 @@ const QRCode = require('qrcode');
 let sock = null;
 let qrData = null;
 let status = 'disconnected';
-let preKeysReady = false;       // true 20s después de conectar (pre-keys subidas)
-const msgQueue = [];            // mensajes recibidos antes de que las pre-keys estén listas
+let preKeysReady = false;
+const msgQueue = [];
 
-// Cache LID → JID de teléfono (@s.whatsapp.net)
-// Se llena con contacts.upsert durante el sync de historial
+// Última clave de mensaje recibido por JID — para respuestas citadas
+// Enviar como reply usa la sesión E2E ya establecida al recibir, evitando error 463
+const lastMsgKey = new Map();
+
+// Cache LID → JID de teléfono
 const lidCache = {};
 
-// Detectar automáticamente la ruta del volumen de Railway
 function detectAuthFolder() {
     const envFolder = process.env.WA_AUTH_FOLDER;
     if (envFolder && envFolder !== '/app/wa_auth') return envFolder;
@@ -33,13 +35,12 @@ function detectAuthFolder() {
 const AUTH_FOLDER = detectAuthFolder();
 const LID_CACHE_FILE = path.join(AUTH_FOLDER, 'lid_cache.json');
 
-// Cargar cache LID persistido del volumen
 function loadLidCache() {
     try {
         if (fs.existsSync(LID_CACHE_FILE)) {
             const data = JSON.parse(fs.readFileSync(LID_CACHE_FILE, 'utf-8'));
             Object.assign(lidCache, data);
-            console.log(`📞 Cache LID cargado: ${Object.keys(lidCache).length} contactos`);
+            console.log(`📞 Cache LID: ${Object.keys(lidCache).length} contactos`);
         }
     } catch {}
 }
@@ -51,8 +52,6 @@ function saveLidCache() {
     } catch {}
 }
 
-// Resolver @lid → @s.whatsapp.net usando el cache
-// Enviar a @s.whatsapp.net evita error 463 (WhatsApp no puede establecer sesión E2E con @lid)
 function resolveLid(jid) {
     if (!jid || !jid.endsWith('@lid')) return jid;
     const resolved = lidCache[jid];
@@ -60,8 +59,12 @@ function resolveLid(jid) {
         console.log(`📞 LID resuelto: ${jid} → ${resolved}`);
         return resolved;
     }
-    console.log(`⚠️  LID sin resolver: ${jid} (enviando igual, puede fallar)`);
     return jid;
+}
+
+// Clave del último mensaje recibido por JID — para quoted reply
+function getLastMsgKey(jid) {
+    return lastMsgKey.get(jid) || null;
 }
 
 loadLidCache();
@@ -113,29 +116,23 @@ async function iniciar() {
         auth: state,
         browser: Browsers.ubuntu('Chrome'),
         printQRInTerminal: false,
+        syncFullHistory: false,
         getMessage: async () => ({ conversation: '' }),
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Construir cache LID → teléfono desde sync de contactos
-    // WhatsApp envía estos eventos durante el primer sync de historial
+    // Construir cache LID → teléfono durante sync de contactos
     sock.ev.on('contacts.upsert', (contacts) => {
         let updated = 0;
         for (const c of contacts) {
-            // c.id es el JID principal (@s.whatsapp.net o @lid)
-            // c.lid es el LID cuando el JID principal es el teléfono
             if (c.lid && c.id && c.id.endsWith('@s.whatsapp.net')) {
                 lidCache[c.lid] = c.id;
                 updated++;
             }
-            // También mapear al revés: si el id ya es @lid, registrar ambos lados
-            if (c.id && c.id.endsWith('@lid')) {
-                // No tenemos el teléfono directamente — ignorar por ahora
-            }
         }
         if (updated > 0) {
-            console.log(`📞 Cache LID actualizado: +${updated} contactos (total ${Object.keys(lidCache).length})`);
+            console.log(`📞 Cache LID: +${updated} mapeados (total ${Object.keys(lidCache).length})`);
             saveLidCache();
         }
     });
@@ -148,9 +145,7 @@ async function iniciar() {
                 updated++;
             }
         }
-        if (updated > 0) {
-            saveLidCache();
-        }
+        if (updated > 0) saveLidCache();
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -169,7 +164,7 @@ async function iniciar() {
             const loggedOut = code === DisconnectReason.loggedOut;
             console.log('WhatsApp desconectado, código:', code);
             if (loggedOut) {
-                console.log('Sesión cerrada por WhatsApp — generando nuevo QR...');
+                console.log('Sesión cerrada — generando nuevo QR...');
                 limpiarCredenciales();
                 setTimeout(iniciar, 3000);
             } else {
@@ -182,7 +177,7 @@ async function iniciar() {
             status = 'ready';
             qrData = null;
             preKeysReady = false;
-            console.log('✅ WhatsApp conectado — esperando 30s para pre-keys y sync...');
+            console.log('✅ WhatsApp conectado — esperando 30s para pre-keys...');
             setTimeout(async () => {
                 preKeysReady = true;
                 console.log(`✅ Bot operativo — cache LID: ${Object.keys(lidCache).length} contactos`);
@@ -204,6 +199,9 @@ async function iniciar() {
             if (msg.key.fromMe) continue;
             const jid = msg.key.remoteJid || '';
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
+
+            // Guardar clave del último mensaje para poder responder citando
+            lastMsgKey.set(jid, msg.key);
 
             try {
                 const numero = jid;
@@ -229,7 +227,7 @@ async function iniciar() {
                 const msgData = { numero, nombre, tipo, texto, mediaBuffer };
 
                 if (!preKeysReady) {
-                    console.log('⏳ Mensaje recibido durante inicialización, encolado...');
+                    console.log('⏳ Mensaje encolado (inicializando pre-keys)...');
                     msgQueue.push(msgData);
                 } else {
                     const { procesarMensaje } = require('./botService');
@@ -247,4 +245,4 @@ async function getQRImage() {
     try { return await QRCode.toDataURL(qrData); } catch (e) { return null; }
 }
 
-module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid };
+module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid, getLastMsgKey };
