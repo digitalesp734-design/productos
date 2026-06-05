@@ -116,13 +116,19 @@ function infoPago(monto) {
     return txt;
 }
 
-// ── Audio pregrabado del producto ─────────────────────────────────────────────
-// Coloca los audios en: server/src/assets/audios/producto_1.ogg, producto_2.ogg, etc.
-function getAudioProducto(productoId) {
+// ── Link de agentes n8n para cuando pregunten ────────────────────────────────
+const LINK_AGENTES_N8N = 'https://docs.google.com/spreadsheets/d/1RTXROtQqnyh4yC4n5U-DiKR9x0aWz_l8w1QmK1pr-ik/edit?usp=sharing';
+
+// ── Audio pregrabado del producto (matching por nombre) ───────────────────────
+function getAudioProducto(nombreProducto) {
     const AUDIO_DIR = path.join(__dirname, '../assets/audios');
-    const ruta = path.join(AUDIO_DIR, `producto_${productoId}.ogg`);
-    if (fs.existsSync(ruta)) return fs.readFileSync(ruta);
-    return null;
+    const nombre    = (nombreProducto || '').toLowerCase();
+    let archivo = null;
+    if (nombre.includes('capcut'))              archivo = 'capcut.ogg';
+    else if (nombre.includes('n8n') || nombre.includes('agente')) archivo = 'n8n.ogg';
+    if (!archivo) return null;
+    const ruta = path.join(AUDIO_DIR, archivo);
+    return fs.existsSync(ruta) ? fs.readFileSync(ruta) : null;
 }
 
 // ── Sistema prompt ultra-compacto, WhatsApp real ──────────────────────────────
@@ -171,19 +177,29 @@ async function guardarHistorial(conv, rol, texto) {
 
 // ── Enviar detalle del producto (texto + audio si existe) ─────────────────────
 async function enviarDetalleProducto(numero, producto) {
-    const audio = getAudioProducto(producto.id);
+    const audio  = getAudioProducto(producto.nombre);
+    const esN8n  = /n8n|agente/i.test(producto.nombre);
+
     if (audio) {
-        // Tiene audio pregrabado: enviar texto corto + audio
-        const intro = `🔥 *${producto.nombre}* — ${fmt(producto.precio)}\n\nTe mando un audio con todos los detalles 👇`;
+        const intro = `🔥 *${producto.nombre}* — ${fmt(producto.precio)} pago único\n\nEscucha los detalles 👇`;
         await enviarTexto(numero, intro);
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 700));
         await enviarAudio(numero, audio);
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 600));
+
+        // Si es n8n, enviar link de la lista de agentes
+        if (esN8n) {
+            await enviarTexto(numero, `📋 Aquí puedes ver la lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}`);
+            await new Promise(r => setTimeout(r, 500));
+        }
         await enviarTexto(numero, '¿Cuál es tu correo? Te envío el acceso al instante 📧');
     } else {
-        // Sin audio: texto corto
-        const msg = `🔥 *${producto.nombre}*\n💰 ${fmt(producto.precio)} — pago único de por vida\n\n${(producto.descripcion || '').slice(0, 120)}\n\n¿Cuál es tu correo para enviarte el acceso? 📧`;
+        const msg = `🔥 *${producto.nombre}*\n💰 ${fmt(producto.precio)} — pago único de por vida\n\n${(producto.descripcion || '').slice(0, 120)}\n\n¿Cuál es tu correo? 📧`;
         await enviarTexto(numero, msg);
+        if (esN8n) {
+            await new Promise(r => setTimeout(r, 500));
+            await enviarTexto(numero, `📋 Lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}`);
+        }
     }
 }
 
@@ -316,6 +332,14 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         const producto = await Producto.findByPk(conv.producto_id);
         await conv.update({ estado: 'esperando_comprobante', email_cliente: email });
         const respuesta = `Perfecto ✅ Anota los datos de pago:\n\n${infoPago(producto.precio)}\nEnvíame la captura cuando pagues y en segundos tienes el acceso ⚡`;
+        await enviarTexto(numero, respuesta);
+        await guardarHistorial(conv, 'bot', respuesta);
+        return;
+    }
+
+    // ── Si pregunta por la lista de agentes n8n, dar el link directo ────────────
+    if (/agentes?|lista|cuáles|cuales|qué agentes|que agentes|350/i.test(msgLower) && /n8n/i.test(msgLower + (conv.ultimo_mensaje || ''))) {
+        const respuesta = `📋 Aquí está la lista completa de los 350 agentes incluidos:\n${LINK_AGENTES_N8N}\n\n¿Cuál es tu correo para enviarte el acceso? 📧`;
         await enviarTexto(numero, respuesta);
         await guardarHistorial(conv, 'bot', respuesta);
         return;
