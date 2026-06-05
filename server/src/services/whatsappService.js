@@ -25,4 +25,16 @@ async function enviarTexto(numero, texto) {
     }
 }
 
-module.exports = { enviarTexto };
+async function enviarAudio(numero, buffer, mimetype = 'audio/ogg; codecs=opus') {
+    const sock = getClient();
+    if (!sock || !buffer) return null;
+    const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
+    try {
+        await sock.sendMessage(jid, { audio: buffer, mimetype, ptt: true });
+        console.log('🎙️ Audio enviado a', jid);
+    } catch (e) {
+        console.error('❌ Error enviando audio a', jid, ':', e.message);
+    }
+}
+
+module.exports = { enviarTexto, enviarAudio };
