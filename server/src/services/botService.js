@@ -176,30 +176,57 @@ async function guardarHistorial(conv, rol, texto) {
 }
 
 // ── Enviar detalle del producto (texto + audio si existe) ─────────────────────
+// Pregunta persuasiva según producto — mantiene la conversación viva
+function preguntaPersuasiva(nombreProducto) {
+    const esN8n     = /n8n|agente/i.test(nombreProducto);
+    const esCapcut  = /capcut/i.test(nombreProducto);
+
+    if (esN8n) return [
+        '¿Ya tienes n8n instalado o estás empezando desde cero? 🤔',
+        '¿Cuántos procesos repetitivos tienes en tu negocio que quisieras automatizar? 💡',
+        '¿Usas n8n para tu negocio o para aprender automatización?'
+    ][Math.floor(Math.random() * 3)];
+
+    if (esCapcut) return [
+        '¿Ya editas con CapCut o estás empezando desde cero? 🎬',
+        '¿Editas videos para redes sociales o para otro uso? 📱',
+        '¿Cuántos videos más o menos editas a la semana?'
+    ][Math.floor(Math.random() * 3)];
+
+    return '¿Para qué lo necesitas principalmente? Así te cuento qué parte te va a servir más 😊';
+}
+
 async function enviarDetalleProducto(numero, producto) {
-    const audio  = getAudioProducto(producto.nombre);
-    const esN8n  = /n8n|agente/i.test(producto.nombre);
+    const audio = getAudioProducto(producto.nombre);
+    const esN8n = /n8n|agente/i.test(producto.nombre);
 
     if (audio) {
+        // 1. Intro corta
         const intro = `🔥 *${producto.nombre}* — ${fmt(producto.precio)} pago único\n\nEscucha los detalles 👇`;
         await enviarTexto(numero, intro);
-        await new Promise(r => setTimeout(r, 700));
-        await enviarAudio(numero, audio);
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 800));
 
-        // Si es n8n, enviar link de la lista de agentes
+        // 2. Audio
+        await enviarAudio(numero, audio);
+        await new Promise(r => setTimeout(r, 1200));
+
+        // 3. Link agentes si es n8n
         if (esN8n) {
-            await enviarTexto(numero, `📋 Aquí puedes ver la lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}`);
-            await new Promise(r => setTimeout(r, 500));
-        }
-        await enviarTexto(numero, '¿Cuál es tu correo? Te envío el acceso al instante 📧');
-    } else {
-        const msg = `🔥 *${producto.nombre}*\n💰 ${fmt(producto.precio)} — pago único de por vida\n\n${(producto.descripcion || '').slice(0, 120)}\n\n¿Cuál es tu correo? 📧`;
-        await enviarTexto(numero, msg);
-        if (esN8n) {
-            await new Promise(r => setTimeout(r, 500));
             await enviarTexto(numero, `📋 Lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}`);
+            await new Promise(r => setTimeout(r, 700));
         }
+
+        // 4. Pregunta persuasiva — no pide email todavía, primero engancha
+        await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
+    } else {
+        const msg = `🔥 *${producto.nombre}*\n💰 ${fmt(producto.precio)} — pago único de por vida\n\n${(producto.descripcion || '').slice(0, 120)}`;
+        await enviarTexto(numero, msg);
+        await new Promise(r => setTimeout(r, 600));
+        if (esN8n) {
+            await enviarTexto(numero, `📋 Lista de los 350 agentes:\n${LINK_AGENTES_N8N}`);
+            await new Promise(r => setTimeout(r, 500));
+        }
+        await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
     }
 }
 
