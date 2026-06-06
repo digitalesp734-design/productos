@@ -65,9 +65,9 @@ async function seed() {
         }
     }
 
-    // Productos — verificar que sean los correctos (Capcut + n8n)
-    const tieneCapcut = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%'") });
-    const tieneN8n    = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%n8n%' OR nombre LIKE '%gente%'") });
+    // Productos — verificar nombre exacto para evitar que productos viejos bloqueen el seed
+    const tieneCapcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
+    const tieneN8n    = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
 
     if (!tieneCapcut || !tieneN8n) {
         await Producto.destroy({ where: {} }); // limpiar seed incorrecto

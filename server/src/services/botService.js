@@ -119,6 +119,16 @@ function infoPago(monto) {
 // ── Link de agentes n8n para cuando pregunten ────────────────────────────────
 const LINK_AGENTES_N8N = 'https://docs.google.com/spreadsheets/d/1RTXROtQqnyh4yC4n5U-DiKR9x0aWz_l8w1QmK1pr-ik/edit?usp=sharing';
 
+// ── Detectar producto mencionado en el mensaje ────────────────────────────────
+function detectarProductoMencionado(msgLower, productos) {
+    for (const p of productos) {
+        const n = p.nombre.toLowerCase();
+        if (n.includes('capcut') && msgLower.includes('capcut')) return p;
+        if ((n.includes('n8n') || n.includes('agente')) && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
+    }
+    return null;
+}
+
 // ── Audio pregrabado del producto (matching por nombre) ───────────────────────
 function getAudioProducto(nombreProducto) {
     const AUDIO_DIR = path.join(__dirname, '../assets/audios');
@@ -332,8 +342,18 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
+    // ── Mención directa de producto → audio inmediato ────────────────────────
+    if (['nuevo', 'activo', 'menu'].includes(estado)) {
+        const productoDetectado = detectarProductoMencionado(msgLower, productos);
+        if (productoDetectado) {
+            await conv.update({ estado: 'esperando_email', producto_id: productoDetectado.id });
+            await enviarDetalleProducto(numero, productoDetectado);
+            await guardarHistorial(conv, 'bot', `🔥 ${productoDetectado.nombre} — ${fmt(productoDetectado.precio)}`);
+            return;
+        }
+    }
+
     // ── Primer mensaje (estado nuevo) → IA entiende el contexto ──────────────
-    // No mostrar menú completo ciegamente. Dejar que la IA responda según lo que dijo.
     if (estado === 'nuevo') {
         const iaRespuesta = await respuestaIA(msg, conv, productos);
         const respuesta   = iaRespuesta || menuTexto(productos);
