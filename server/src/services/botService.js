@@ -124,8 +124,10 @@ function getAudioProducto(nombreProducto) {
     const AUDIO_DIR = path.join(__dirname, '../assets/audios');
     const nombre    = (nombreProducto || '').toLowerCase();
     let archivo = null;
-    if (nombre.includes('capcut'))              archivo = 'capcut.ogg';
-    else if (nombre.includes('n8n') || nombre.includes('agente')) archivo = 'n8n.ogg';
+    if (nombre.includes('capcut'))
+        archivo = 'capcut.ogg';
+    else if (nombre.includes('n8n') || nombre.includes('agente'))
+        archivo = 'n8n.ogg';
     if (!archivo) return null;
     const ruta = path.join(AUDIO_DIR, archivo);
     return fs.existsSync(ruta) ? fs.readFileSync(ruta) : null;

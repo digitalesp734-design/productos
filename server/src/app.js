@@ -73,10 +73,10 @@ async function seed() {
         await Producto.destroy({ where: {} }); // limpiar seed incorrecto
         await Producto.bulkCreate([
             {
-                nombre:      'Curso de CapCut',
-                descripcion: 'Domina CapCut desde cero y crea videos virales para TikTok, Instagram y YouTube. Efectos, transiciones, texto animado y todo lo que necesitas. Acceso de por vida.',
+                nombre:      'Curso CapCut PRO (Pack Completo)',
+                descripcion: 'Pack completo: CapCut PRO + Edición de Video Profesional + Photoshop PRO. Todo para crear contenido viral y profesional. Pago único de por vida.',
                 precio:      20000,
-                link_drive:  process.env.LINK_CAPCUT || 'PENDIENTE_CONFIGURAR',
+                link_drive:  '🎬 *CapCut PRO – Edición desde Cero*\n▪ Aprende a editar videos modernos para redes sociales, reels y contenido viral.\nhttps://drive.google.com/drive/folders/1A5DhrI1pKz1TLq9cyU2U9LI-ROb1g5Es?usp=sharing\n\n🎬 *Edición de Video Profesional*\n▪ Técnicas y flujo de trabajo para editar contenido profesional y comercial.\nhttps://drive.google.com/drive/folders/1MUfFrcti-coGHbJVloFVQ6mEv_1vPh7m\n\n🎨 *Photoshop PRO – Edición Profesional*\n▪ Retoque fotográfico, corrección de color y creación de piezas visuales profesionales.\nhttps://drive.google.com/drive/folders/1X6EZD26FC4I5plBwhpU7ucBnlorlC6pR',
                 activo:      true,
                 orden:       1
             },
@@ -84,12 +84,12 @@ async function seed() {
                 nombre:      'Pack n8n — 350 Agentes de IA',
                 descripcion: '350 agentes de automatización listos para usar en n8n. Automatiza ventas, atención al cliente, marketing y más. Pago único de por vida.',
                 precio:      20000,
-                link_drive:  process.env.LINK_N8N || 'PENDIENTE_CONFIGURAR',
+                link_drive:  'https://drive.google.com/drive/folders/191XWRGRXJmLCaULa2lLp4G_QXf63oesw?usp=sharing',
                 activo:      true,
                 orden:       2
             }
         ]);
-        console.log('✅ Productos correctos creados (Capcut + n8n)');
+        console.log('✅ Productos creados (Curso CapCut Pack Completo + Pack n8n)');
     }
 }
 
