@@ -34,21 +34,27 @@ router.post('/responder-pendientes', auth, async (req, res) => {
             const historial = conv.historial || [];
             if (!historial.length) continue;
 
-            // Solo responder si el último mensaje fue del usuario
-            const ultimo = historial[historial.length - 1];
-            if (ultimo?.rol !== 'user') continue;
+            // Buscar el último mensaje del usuario (aunque el bot ya haya respondido después)
+            const ultimoUser = [...historial].reverse().find(h => h.rol === 'user');
+            if (!ultimoUser) continue;
+
+            // Si el bot ya respondió con info específica del producto (audio / link), omitir
+            const ultimoBot = [...historial].reverse().find(h => h.rol === 'bot');
+            const yaRespondioCorrect = ultimoBot && !ultimoBot.texto?.includes('Escríbeme el número') &&
+                                       !ultimoBot.texto?.includes('¿Sigues interesado?') &&
+                                       !ultimoBot.texto?.includes('disponible:');
+            if (yaRespondioCorrect) continue;
 
             try {
-                // Reprocesar el último mensaje del usuario — el bot lee lo que dijo y responde
                 await procesarMensaje({
                     numero:      conv.numero_wa,
                     nombre:      conv.nombre_cliente,
                     tipo:        'text',
-                    texto:       ultimo.texto,
+                    texto:       ultimoUser.texto,
                     mediaBuffer: null
                 });
                 respondidos++;
-                await new Promise(r => setTimeout(r, 1500));
+                await new Promise(r => setTimeout(r, 2000));
             } catch (e) { console.error('Error respondiendo a', conv.numero_wa, e.message); }
         }
 
