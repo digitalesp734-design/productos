@@ -3,6 +3,7 @@ const { Op }      = require('sequelize');
 const { getQRImage, getStatus, resetAndRestart } = require('../services/whatsappClient');
 const { Conversacion, Producto } = require('../models');
 const { enviarTexto } = require('../services/whatsappService');
+const { procesarMensaje } = require('../services/botService');
 const auth        = require('../middleware/auth');
 
 router.get('/status', auth, async (req, res) => {
@@ -20,13 +21,10 @@ router.post('/restart', auth, async (req, res) => {
 // Responder a todos los que están esperando respuesta
 router.post('/responder-pendientes', auth, async (req, res) => {
     try {
-        const productos = await Producto.findAll({ where: { activo: true }, order: [['orden', 'ASC']] });
-        const lista = productos.map((p, i) => `*${i+1}.* ${p.nombre} — *$${parseInt(p.precio).toLocaleString('es-CO')}*`).join('\n');
-
-        // Buscar conversaciones sin respuesta reciente del bot
+        // Buscar conversaciones con último mensaje del usuario (últimas 48h)
         const pendientes = await Conversacion.findAll({
             where: {
-                updatedAt: { [Op.gt]: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+                updatedAt: { [Op.gt]: new Date(Date.now() - 48 * 60 * 60 * 1000) },
                 estado:    { [Op.in]: ['nuevo', 'activo', 'menu'] }
             }
         });
@@ -36,16 +34,22 @@ router.post('/responder-pendientes', auth, async (req, res) => {
             const historial = conv.historial || [];
             if (!historial.length) continue;
 
-            // Revisar si el último mensaje fue del usuario
+            // Solo responder si el último mensaje fue del usuario
             const ultimo = historial[historial.length - 1];
             if (ultimo?.rol !== 'user') continue;
 
-            const msg = `Hola 👋 ¿Sigues interesado?\n\nTengo esto disponible:\n\n${lista}\n\nEscríbeme el número del que te interesa 😊`;
-            await enviarTexto(conv.numero_wa, msg);
-            const h = [...historial, { rol: 'bot', texto: msg, ts: Date.now() }].slice(-30);
-            await conv.update({ historial: h, ultimo_mensaje: msg.slice(0, 200) });
-            respondidos++;
-            await new Promise(r => setTimeout(r, 800)); // esperar entre mensajes
+            try {
+                // Reprocesar el último mensaje del usuario — el bot lee lo que dijo y responde
+                await procesarMensaje({
+                    numero:      conv.numero_wa,
+                    nombre:      conv.nombre_cliente,
+                    tipo:        'text',
+                    texto:       ultimo.texto,
+                    mediaBuffer: null
+                });
+                respondidos++;
+                await new Promise(r => setTimeout(r, 1500));
+            } catch (e) { console.error('Error respondiendo a', conv.numero_wa, e.message); }
         }
 
         res.json({ ok: true, respondidos });

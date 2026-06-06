@@ -83,20 +83,27 @@ async function seed() {
         orden:       2
     };
 
-    const tieneCapcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
-    if (!tieneCapcut) {
+    let capcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
+    if (!capcut) {
         const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%'") });
-        if (viejo) { await viejo.update(datosCapcut); }
-        else        { await Producto.create(datosCapcut); }
+        if (viejo) { await viejo.update(datosCapcut); capcut = viejo; }
+        else        { capcut = await Producto.create(datosCapcut); }
         console.log('✅ Producto CapCut actualizado/creado');
     }
 
-    const tieneN8n = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
-    if (!tieneN8n) {
+    let n8n = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
+    if (!n8n) {
         const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%n8n%' OR nombre LIKE '%gente%'") });
-        if (viejo) { await viejo.update(datosN8n); }
-        else        { await Producto.create(datosN8n); }
+        if (viejo) { await viejo.update(datosN8n); n8n = viejo; }
+        else        { n8n = await Producto.create(datosN8n); }
         console.log('✅ Producto n8n actualizado/creado');
+    }
+
+    // Eliminar productos extra que no son CapCut ni n8n (limpiar seeds viejos)
+    if (capcut && n8n) {
+        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${n8n.id})`);
+        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${n8n.id})`);
+        if (deleted?.affectedRows > 0) console.log(`🗑️ Eliminados ${deleted.affectedRows} productos extra`);
     }
 }
 
