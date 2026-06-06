@@ -66,4 +66,36 @@ router.post('/followup-ahora', auth, async (req, res) => {
     }
 });
 
+// Enviar mensaje directo a lista de números
+router.post('/broadcast', auth, async (req, res) => {
+    try {
+        const { numeros, mensaje } = req.body;
+        if (!numeros?.length || !mensaje) return res.status(400).json({ ok: false, msg: 'numeros y mensaje requeridos' });
+
+        const productos = await Producto.findAll({ where: { activo: true }, order: [['orden', 'ASC']] });
+        const lista = productos.map((p, i) => `*${i+1}.* ${p.nombre} — *$${parseInt(p.precio).toLocaleString('es-CO')}*`).join('\n');
+        const msgFinal = mensaje.replace('{{lista}}', lista);
+
+        let enviados = 0;
+        for (const num of numeros) {
+            const numero = num.toString().replace(/\D/g,'');
+            try {
+                await enviarTexto(numero, msgFinal);
+                // Crear conversación en BD para que el bot pueda seguir la charla
+                const [conv] = await Conversacion.findOrCreate({
+                    where: { numero_wa: numero },
+                    defaults: { nombre_cliente: null, estado: 'menu', historial: [], notas: {} }
+                });
+                const h = [...(conv.historial || []), { rol: 'bot', texto: msgFinal, ts: Date.now() }].slice(-30);
+                await conv.update({ historial: h, estado: 'menu' });
+                enviados++;
+                await new Promise(r => setTimeout(r, 1000));
+            } catch (e) { console.error('Error enviando a', numero, e.message); }
+        }
+        res.json({ ok: true, enviados });
+    } catch (e) {
+        res.status(500).json({ ok: false, msg: e.message });
+    }
+});
+
 module.exports = router;
