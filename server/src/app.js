@@ -65,31 +65,38 @@ async function seed() {
         }
     }
 
-    // Productos — verificar nombre exacto para evitar que productos viejos bloqueen el seed
-    const tieneCapcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
-    const tieneN8n    = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
+    // Productos — actualizar in-place para evitar FK constraint con Conversaciones
+    const datosCapcut = {
+        nombre:      'Curso CapCut PRO (Pack Completo)',
+        descripcion: 'Pack completo: CapCut PRO + Edición de Video Profesional + Photoshop PRO. Todo para crear contenido viral y profesional. Pago único de por vida.',
+        precio:      20000,
+        link_drive:  '🎬 *CapCut PRO – Edición desde Cero*\n▪ Aprende a editar videos modernos para redes sociales, reels y contenido viral.\nhttps://drive.google.com/drive/folders/1A5DhrI1pKz1TLq9cyU2U9LI-ROb1g5Es?usp=sharing\n\n🎬 *Edición de Video Profesional*\n▪ Técnicas y flujo de trabajo para editar contenido profesional y comercial.\nhttps://drive.google.com/drive/folders/1MUfFrcti-coGHbJVloFVQ6mEv_1Vph7m\n\n🎨 *Photoshop PRO – Edición Profesional*\n▪ Retoque fotográfico, corrección de color y creación de piezas visuales profesionales.\nhttps://drive.google.com/drive/folders/1X6EZD26FC4I5plBwhpU7ucBnlorlC6pR',
+        activo:      true,
+        orden:       1
+    };
+    const datosN8n = {
+        nombre:      'Pack n8n — 350 Agentes de IA',
+        descripcion: '350 agentes de automatización listos para usar en n8n. Automatiza ventas, atención al cliente, marketing y más. Pago único de por vida.',
+        precio:      20000,
+        link_drive:  'https://drive.google.com/drive/folders/191XWRGRXJmLCaULa2lLp4G_QXf63oesw?usp=sharing',
+        activo:      true,
+        orden:       2
+    };
 
-    if (!tieneCapcut || !tieneN8n) {
-        await Producto.destroy({ where: {} }); // limpiar seed incorrecto
-        await Producto.bulkCreate([
-            {
-                nombre:      'Curso CapCut PRO (Pack Completo)',
-                descripcion: 'Pack completo: CapCut PRO + Edición de Video Profesional + Photoshop PRO. Todo para crear contenido viral y profesional. Pago único de por vida.',
-                precio:      20000,
-                link_drive:  '🎬 *CapCut PRO – Edición desde Cero*\n▪ Aprende a editar videos modernos para redes sociales, reels y contenido viral.\nhttps://drive.google.com/drive/folders/1A5DhrI1pKz1TLq9cyU2U9LI-ROb1g5Es?usp=sharing\n\n🎬 *Edición de Video Profesional*\n▪ Técnicas y flujo de trabajo para editar contenido profesional y comercial.\nhttps://drive.google.com/drive/folders/1MUfFrcti-coGHbJVloFVQ6mEv_1vPh7m\n\n🎨 *Photoshop PRO – Edición Profesional*\n▪ Retoque fotográfico, corrección de color y creación de piezas visuales profesionales.\nhttps://drive.google.com/drive/folders/1X6EZD26FC4I5plBwhpU7ucBnlorlC6pR',
-                activo:      true,
-                orden:       1
-            },
-            {
-                nombre:      'Pack n8n — 350 Agentes de IA',
-                descripcion: '350 agentes de automatización listos para usar en n8n. Automatiza ventas, atención al cliente, marketing y más. Pago único de por vida.',
-                precio:      20000,
-                link_drive:  'https://drive.google.com/drive/folders/191XWRGRXJmLCaULa2lLp4G_QXf63oesw?usp=sharing',
-                activo:      true,
-                orden:       2
-            }
-        ]);
-        console.log('✅ Productos creados (Curso CapCut Pack Completo + Pack n8n)');
+    const tieneCapcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
+    if (!tieneCapcut) {
+        const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%'") });
+        if (viejo) { await viejo.update(datosCapcut); }
+        else        { await Producto.create(datosCapcut); }
+        console.log('✅ Producto CapCut actualizado/creado');
+    }
+
+    const tieneN8n = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
+    if (!tieneN8n) {
+        const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%n8n%' OR nombre LIKE '%gente%'") });
+        if (viejo) { await viejo.update(datosN8n); }
+        else        { await Producto.create(datosN8n); }
+        console.log('✅ Producto n8n actualizado/creado');
     }
 }
 
@@ -99,7 +106,7 @@ async function iniciar(intentos = 5) {
     for (let i = 1; i <= intentos; i++) {
         try {
             await sequelize.authenticate();
-            await sequelize.sync({ alter: true });
+            await sequelize.sync();
             await seed();
             app.listen(PORT, '0.0.0.0', () => console.log(`🛒 Product Digital corriendo en puerto ${PORT}`));
             waClient.iniciar();
