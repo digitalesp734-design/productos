@@ -65,19 +65,31 @@ async function seed() {
         }
     }
 
-    // Productos iniciales
-    const count = await Producto.count();
-    if (count === 0) {
+    // Productos — verificar que sean los correctos (Capcut + n8n)
+    const tieneCapcut = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%'") });
+    const tieneN8n    = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%n8n%' OR nombre LIKE '%gente%'") });
+
+    if (!tieneCapcut || !tieneN8n) {
+        await Producto.destroy({ where: {} }); // limpiar seed incorrecto
         await Producto.bulkCreate([
-            { nombre: 'Suite Adobe 2023 Completa', descripcion: 'Todos los programas de Adobe versión 2023: Photoshop, Illustrator, Premiere, After Effects, Lightroom, InDesign y más. ⚠️ Importante: son programas versión 2023, los más estables y completos del mercado. Pago único de por vida, sin mensualidades.', precio: 20000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 1 },
-            { nombre: 'Cursos Digitales (Ecommerce, Dropshipping, Trading, Marketing)', descripcion: 'Pack completo de cursos en los temas más rentables: Ecommerce, Dropshipping, Trading y Marketing Digital. Todo actualizado y listo para aplicar desde el día uno.', precio: 25000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 2 },
-            { nombre: 'Consola de Juegos Digitales', descripcion: 'Acceso a una amplia biblioteca de juegos digitales. Pago único de por vida, sin mensualidades ni suscripciones.', precio: 30000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 3 },
-            { nombre: 'Recursos de Edición (Video + Foto)', descripcion: 'Carpeta completa con recursos premium para edición de video y foto: LUTs, presets, overlays, plantillas, transiciones, efectos de sonido y mucho más.', precio: 20000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 4 },
-            { nombre: 'Plantillas n8n (+1000 Plantillas)', descripcion: 'Más de 1000 plantillas de automatización listas para usar en n8n. Ahorra cientos de horas de trabajo con flujos ya creados para marketing, ventas, productividad y más.', precio: 15000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 5 },
-            { nombre: 'Curso de Canva para Principiantes', descripcion: 'Aprende Canva desde cero y crea diseños profesionales para redes sociales, presentaciones, logos y más. Perfecto para emprendedores y editores que están comenzando.', precio: 20000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 6 },
-            { nombre: 'COMBO: Suite Adobe + Recursos Edición', descripcion: 'El combo perfecto para editores: Suite Adobe 2023 completa + Pack de recursos de edición (LUTs, presets, plantillas y más). Todo por un precio especial.', precio: 35000, link_drive: 'PENDIENTE_CONFIGURAR', activo: true, orden: 7, es_combo: true },
+            {
+                nombre:      'Curso de CapCut',
+                descripcion: 'Domina CapCut desde cero y crea videos virales para TikTok, Instagram y YouTube. Efectos, transiciones, texto animado y todo lo que necesitas. Acceso de por vida.',
+                precio:      20000,
+                link_drive:  process.env.LINK_CAPCUT || 'PENDIENTE_CONFIGURAR',
+                activo:      true,
+                orden:       1
+            },
+            {
+                nombre:      'Pack n8n — 350 Agentes de IA',
+                descripcion: '350 agentes de automatización listos para usar en n8n. Automatiza ventas, atención al cliente, marketing y más. Pago único de por vida.',
+                precio:      20000,
+                link_drive:  process.env.LINK_N8N || 'PENDIENTE_CONFIGURAR',
+                activo:      true,
+                orden:       2
+            }
         ]);
-        console.log('✅ Productos iniciales creados');
+        console.log('✅ Productos correctos creados (Capcut + n8n)');
     }
 }
 
