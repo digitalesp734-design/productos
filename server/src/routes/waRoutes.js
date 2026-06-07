@@ -167,18 +167,33 @@ router.post('/broadcast', auth, async (req, res) => {
             const numero = num.toString().replace(/\D/g,'');
             try {
                 await enviarTexto(numero, msgFinal);
-                // Crear conversación en BD para que el bot pueda seguir la charla
-                const [conv] = await Conversacion.findOrCreate({
-                    where: { numero_wa: numero },
-                    defaults: { nombre_cliente: null, estado: 'menu', historial: [], notas: {} }
+                // Buscar conversación existente (puede tener formato @lid)
+                const conv = await Conversacion.findOne({
+                    where: { numero_wa: { [Op.like]: `%${numero}%` } }
                 });
-                const h = [...(conv.historial || []), { rol: 'bot', texto: msgFinal, ts: Date.now() }].slice(-30);
-                await conv.update({ historial: h, estado: 'menu' });
+                if (conv) {
+                    const h = [...(conv.historial || []), { rol: 'bot', texto: msgFinal, ts: Date.now() }].slice(-30);
+                    await conv.update({ historial: h, ultimo_mensaje: msgFinal.slice(0, 200) });
+                }
                 enviados++;
                 await new Promise(r => setTimeout(r, 1000));
             } catch (e) { console.error('Error enviando a', numero, e.message); }
         }
         res.json({ ok: true, enviados });
+    } catch (e) {
+        res.status(500).json({ ok: false, msg: e.message });
+    }
+});
+
+// Limpiar conversaciones duplicadas sin @ en numero_wa
+router.post('/limpiar-duplicados', auth, async (req, res) => {
+    try {
+        const duplicados = await Conversacion.findAll({
+            where: { numero_wa: { [Op.notLike]: '%@%' } }
+        });
+        const ids = duplicados.map(c => c.id);
+        if (ids.length) await Conversacion.destroy({ where: { id: ids } });
+        res.json({ ok: true, eliminados: ids.length });
     } catch (e) {
         res.status(500).json({ ok: false, msg: e.message });
     }
