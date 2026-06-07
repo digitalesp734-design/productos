@@ -1,8 +1,43 @@
-const cron   = require('node-cron');
-const { Op } = require('sequelize');
+const cron      = require('node-cron');
+const { Op }    = require('sequelize');
+const Anthropic = require('@anthropic-ai/sdk');
 const { Conversacion, Producto } = require('../models');
 const { enviarTexto } = require('./whatsappService');
 const { notificarTelegram } = require('./botService');
+
+// ── IA para followups personalizados ─────────────────────────────────────────
+async function generarFollowupIA(conv, producto, situacion) {
+    try {
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const historial = (conv.historial || []).slice(-6)
+            .map(h => `${h.rol === 'user' ? 'Cliente' : 'Sofía'}: ${h.texto}`)
+            .join('\n');
+        const nombreP = producto?.nombre || '';
+        const esN8n = /n8n|agente/i.test(nombreP);
+
+        const prompt = `Eres Sofía, asesora de ventas por WhatsApp. Colombiana, cercana.
+
+Producto: ${nombreP || 'producto digital'} — $20.000 pago único de por vida
+${esN8n ? 'Pack n8n: 350 agentes de automatización listos para usar en cualquier negocio' : 'Curso CapCut PRO: pack completo con edición de video, reels y Photoshop'}
+
+Conversación previa:
+${historial || '(sin historial previo)'}
+
+Situación: ${situacion}
+
+Escribe UN mensaje de WhatsApp de máximo 2 líneas. Natural, sin presión, que re-abra la conversación. No menciones "correo" ni "pago" a menos que la situación lo pida. Personaliza según lo que dijo el cliente. Solo el texto del mensaje, sin comillas.`;
+
+        const resp = await client.messages.create({
+            model:      'claude-sonnet-4-6',
+            max_tokens: 120,
+            messages:   [{ role: 'user', content: prompt }]
+        });
+        return resp.content[0]?.text?.trim() || null;
+    } catch (e) {
+        console.error('FollowupIA error:', e.message);
+        return null;
+    }
+}
 
 const MIN  = 60 * 1000;
 const HORA = 60 * MIN;
@@ -112,22 +147,14 @@ async function seguimientoInteres() {
         const producto = await Producto.findByPk(conv.producto_id);
         if (!producto) continue;
 
-        const esN8n = /n8n|agente/i.test(producto.nombre);
+        // Followup personalizado con IA según el historial real del cliente
+        const ultimoUser = [...(conv.historial || [])].reverse().find(h => h.rol === 'user');
+        const contexto = ultimoUser?.texto
+            ? `El cliente dijo: "${ultimoUser.texto}". Re-abre la conversación con algo relacionado a eso.`
+            : `El cliente vio el producto pero no respondió. Pregunta algo que genere curiosidad.`;
 
-        // Preguntas que abren conversación, no cierran venta
-        const msgsN8n = [
-            `Hola 👋 ¿Le diste ojo al pack de n8n? Si tienes alguna duda de cómo funciona, aquí estoy 😊`,
-            `Oye, ¿hay algo del pack de n8n que no quedó claro? Cuéntame y te explico 🤖`,
-            `¿Para qué proceso lo estabas pensando usar? Así te digo cuál agente te sirve más 💡`
-        ];
-        const msgsCapcut = [
-            `Hola 👋 ¿Le diste ojo al curso de CapCut? Si tienes alguna duda cuéntame 😊`,
-            `Oye, ¿qué tipo de contenido estás pensando hacer? Así te digo qué parte del curso te sirve más 🎬`,
-            `¿Tienes alguna duda del curso? Aquí estoy para lo que necesites 🙌`
-        ];
-
-        const opciones = esN8n ? msgsN8n : msgsCapcut;
-        const msg = opciones[Math.floor(Math.random() * opciones.length)];
+        const msg = await generarFollowupIA(conv, producto, contexto) ||
+            `Hola 👋 ¿Quedaste con alguna duda del producto? Aquí estoy 😊`;
 
         await enviarTexto(conv.numero_wa, msg);
         await guardarHistorial(conv, 'bot', msg);
@@ -155,12 +182,9 @@ async function seguimientoFrio() {
         if (notas.seg_frio_1) continue;
         const ahora = Date.now();
 
-        const msgs = [
-            `Hola 👋 ¿Te quedó alguna pregunta de lo que hablamos? Aquí estoy 😊`,
-            `Oye, ¿pudiste revisar la info? Si necesitas algo más cuéntame 🙌`,
-            `¿Hay algo en lo que te pueda ayudar? Por aquí estoy cuando quieras 😊`
-        ];
-        const msg = msgs[Math.floor(Math.random() * msgs.length)];
+        const msg = await generarFollowupIA(conv, null,
+            `El cliente preguntó sobre productos digitales pero no llegó a ver ninguno en detalle. Re-abre la conversación con una pregunta curiosa sobre qué tipo de negocio o proyecto tiene.`
+        ) || `Hola 👋 ¿Te quedó alguna pregunta de lo que hablamos? Aquí estoy 😊`;
         await enviarTexto(conv.numero_wa, msg);
         await guardarHistorial(conv, 'bot', msg);
         await conv.update({ notas: { ...notas, seg_frio_1: ahora } });
