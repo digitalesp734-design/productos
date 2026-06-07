@@ -15,20 +15,16 @@ const lastMsg = new Map();
 const lidCache = {};
 
 function detectAuthFolder() {
+    // Usar directamente el env var — Railway lo setea al mount path del volumen (/app/wa_auth)
     const envFolder = process.env.WA_AUTH_FOLDER;
-    if (envFolder && envFolder !== '/app/wa_auth') return envFolder;
-    const candidates = ['/data/wa_auth', '/var/data/wa_auth', '/mnt/wa_auth'];
-    for (const c of candidates) {
-        try {
-            fs.mkdirSync(path.dirname(c), { recursive: true });
-            fs.writeFileSync(path.join(path.dirname(c), '.test'), '1');
-            fs.unlinkSync(path.join(path.dirname(c), '.test'));
-            console.log('📁 Usando volumen persistente:', c);
-            return c;
-        } catch {}
+    if (envFolder) {
+        fs.mkdirSync(envFolder, { recursive: true });
+        console.log('📁 Auth folder:', envFolder);
+        return envFolder;
     }
-    console.log('📁 Usando /app/wa_auth (no persistente entre deploys)');
-    return path.join(process.cwd(), 'wa_auth');
+    const fallback = path.join(process.cwd(), 'wa_auth');
+    fs.mkdirSync(fallback, { recursive: true });
+    return fallback;
 }
 
 const AUTH_FOLDER = detectAuthFolder();
