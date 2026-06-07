@@ -123,7 +123,9 @@ const LINK_AGENTES_N8N = 'https://docs.google.com/spreadsheets/d/1RTXROtQqnyh4yC
 function detectarProductoMencionado(msgLower, productos) {
     for (const p of productos) {
         const n = p.nombre.toLowerCase();
-        if (n.includes('capcut') && msgLower.includes('capcut')) return p;
+        // Combo primero si lo mencionan explícitamente
+        if (n.includes('combo') && (msgLower.includes('combo') || msgLower.includes('recursos') || msgLower.includes('vectores'))) return p;
+        if (n.includes('capcut') && !n.includes('combo') && msgLower.includes('capcut')) return p;
         if ((n.includes('n8n') || n.includes('agente')) && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
     }
     return null;
@@ -155,15 +157,28 @@ function buildSystemPrompt(productos) {
 
 PRODUCTOS Y QUÉ INCLUYEN:
 1. Curso CapCut PRO (Pack Completo) — $20.000 pago único de por vida
-   • CapCut PRO desde cero: edición moderna, reels virales, TikTok, YouTube
+   • CapCut PRO desde cero: reels virales, TikTok, YouTube, redes sociales
    • Edición de Video Profesional: flujo de trabajo para contenido comercial
    • Photoshop PRO: retoque, corrección de color, piezas visuales
    → Ideal para: creadores de contenido, emprendedores, negocios en redes
 
-2. Pack n8n — 350 Agentes de IA — $20.000 pago único de por vida
+2. Combo CapCut PRO + Pack Recursos de Edición — $35.000 pago único de por vida
+   • Todo lo del Curso CapCut PRO (los 3 cursos)
+   • Pack Recursos COMPLETO: vectores, efectos, plantillas, todo listo para usar
+   → $35.000 en vez de $40.000 si los compraras por separado (ahorras $5.000)
+   → Ideal para quien quiere aprender Y tener el material profesional desde el día 1
+
+3. Pack n8n — 350 Agentes de IA — $20.000 pago único de por vida
    → 350 automatizaciones listas: ventas, atención al cliente, marketing, CRM, redes sociales
    → No necesita conocimientos técnicos — importas el agente y lo activas
    → Ideal para: negocios que quieren automatizar sin programar
+
+ESTRATEGIA COMBO (MUY IMPORTANTE):
+- Cuando alguien pregunta por CapCut, después del primer intercambio SIEMPRE ofrece el combo
+- Ejemplo: "Por cierto, también tengo el Pack de Recursos completo (vectores, efectos, plantillas profesionales) que va perfecto con el curso. El combo de los dos te lo dejo en $35.000 en vez de $40.000 🔥 ¿Quieres solo el curso o prefieres el combo completo?"
+- Si ya tienen material de edición → recomienda solo el curso
+- Si están empezando desde cero → el combo es lo ideal, énfasis en que tienen TODO desde el día 1
+- No presiones si dicen que solo quieren el curso — acepta y cierra con el curso
 
 PAGO: Nequi ${nequi}${daviplata ? ' / Daviplata ' + daviplata : ''}${llave ? ' / Bre-b ' + llave : ''}${pagNombre ? ' — ' + pagNombre : ''}
 

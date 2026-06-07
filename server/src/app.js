@@ -83,12 +83,27 @@ async function seed() {
         orden:       2
     };
 
+    const datosCombo = {
+        nombre:      'Combo CapCut PRO + Pack Recursos de Edición',
+        descripcion: 'El curso completo de CapCut PRO + Pack Recursos de Edición (vectores, efectos, plantillas, todo). Pago único de por vida.',
+        precio:      35000,
+        link_drive:  '🎬 *CapCut PRO – Edición desde Cero*\n▪ Aprende a editar videos modernos para redes sociales, reels y contenido viral.\nhttps://drive.google.com/drive/folders/1A5DhrI1pKz1TLq9cyU2U9LI-ROb1g5Es?usp=sharing\n\n🎬 *Edición de Video Profesional*\n▪ Técnicas y flujo de trabajo para editar contenido profesional y comercial.\nhttps://drive.google.com/drive/folders/1MUfFrcti-coGHbJVloFVQ6mEv_1Vph7m\n\n🎨 *Photoshop PRO – Edición Profesional*\n▪ Retoque fotográfico, corrección de color y creación de piezas visuales profesionales.\nhttps://drive.google.com/drive/folders/1X6EZD26FC4I5plBwhpU7ucBnlorlC6pR\n\n🎯 *Pack Recursos de Edición Completo*\n▪ Vectores, efectos, plantillas y todo lo que necesitas para crear contenido profesional.\nhttps://drive.google.com/drive/folders/1d3b_9i-a0HGjg_ymgNjAmzzy39WRUVEj',
+        activo:      true,
+        orden:       2
+    };
+
     let capcut = await Producto.findOne({ where: { nombre: 'Curso CapCut PRO (Pack Completo)' } });
     if (!capcut) {
-        const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%'") });
+        const viejo = await Producto.findOne({ where: sequelize.literal("nombre LIKE '%apcut%' AND nombre NOT LIKE '%ombo%'") });
         if (viejo) { await viejo.update(datosCapcut); capcut = viejo; }
         else        { capcut = await Producto.create(datosCapcut); }
         console.log('✅ Producto CapCut actualizado/creado');
+    }
+
+    let combo = await Producto.findOne({ where: { nombre: 'Combo CapCut PRO + Pack Recursos de Edición' } });
+    if (!combo) {
+        combo = await Producto.create(datosCombo);
+        console.log('✅ Combo CapCut + Recursos creado');
     }
 
     let n8n = await Producto.findOne({ where: { nombre: 'Pack n8n — 350 Agentes de IA' } });
@@ -99,10 +114,10 @@ async function seed() {
         console.log('✅ Producto n8n actualizado/creado');
     }
 
-    // Eliminar productos extra que no son CapCut ni n8n (limpiar seeds viejos)
-    if (capcut && n8n) {
-        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${n8n.id})`);
-        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${n8n.id})`);
+    // Limpiar productos extra (mantener solo los 3 correctos)
+    if (capcut && combo && n8n) {
+        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id})`);
+        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id})`);
         if (deleted?.affectedRows > 0) console.log(`🗑️ Eliminados ${deleted.affectedRows} productos extra`);
     }
 }
