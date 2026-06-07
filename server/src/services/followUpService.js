@@ -137,7 +137,7 @@ async function seguimientoEmail() {
 async function seguimientoInteres() {
     const pendientes = await Conversacion.findAll({
         where: {
-            estado:      ['menu', 'activo'],
+            estado:      ['menu', 'viendo_producto'],
             producto_id: { [Op.not]: null },
             updatedAt:   { [Op.lt]: new Date(Date.now() - 3 * HORA) }
         }
@@ -176,7 +176,7 @@ async function seguimientoFrio() {
 
     const frios = await Conversacion.findAll({
         where: {
-            estado:      'activo',
+            estado:      'viendo_producto',
             producto_id: null,
             updatedAt:   { [Op.between]: [hace18h, hace4h] }
         }

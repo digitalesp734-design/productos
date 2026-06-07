@@ -25,7 +25,7 @@ router.post('/responder-pendientes', auth, async (req, res) => {
         const pendientes = await Conversacion.findAll({
             where: {
                 updatedAt: { [Op.gt]: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-                estado:    { [Op.in]: ['nuevo', 'activo', 'menu'] }
+                estado:    { [Op.in]: ['nuevo', 'viendo_producto', 'menu'] }
             }
         });
 
@@ -74,7 +74,7 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
 
             const todos = await Conversacion.findAll({
-                where: { estado: { [Op.in]: ['esperando_comprobante','esperando_email','activo','menu'] } },
+                where: { estado: { [Op.in]: ['esperando_comprobante','esperando_email','viendo_producto','menu'] } },
                 include: [{ model: Producto, as: 'producto', required: false }]
             });
 
@@ -119,7 +119,7 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
                         msg = ops[Math.floor(Math.random() * ops.length)];
                     }
 
-                } else if (['activo','menu'].includes(estado) && prod) {
+                } else if (['viendo_producto','menu'].includes(estado) && prod) {
                     if (esN8n) {
                         msg = `Hola ${nombre} 👋 ¿Pudiste revisar el pack de n8n? Si tienes alguna pregunta de cómo funciona, aquí estoy 😊`;
                     } else if (esCapcut) {

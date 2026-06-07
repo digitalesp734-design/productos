@@ -390,11 +390,11 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     }
 
     // ── Mención directa de producto → audio inmediato ────────────────────────
-    if (['nuevo', 'activo', 'menu'].includes(estado)) {
+    if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
         const productoDetectado = detectarProductoMencionado(msgLower, productos);
         if (productoDetectado) {
-            // Estado 'activo': el cliente vio el producto pero aún no decidió comprar
-            await conv.update({ estado: 'activo', producto_id: productoDetectado.id });
+            // Estado 'viendo_producto': el cliente vio el producto pero aún no decidió comprar
+            await conv.update({ estado: 'viendo_producto', producto_id: productoDetectado.id });
             await enviarDetalleProducto(numero, productoDetectado);
             await guardarHistorial(conv, 'bot', `🔥 ${productoDetectado.nombre} — ${fmt(productoDetectado.precio)}`);
             return;
@@ -405,7 +405,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     if (estado === 'nuevo') {
         const iaRespuesta = await respuestaIA(msg, conv, productos);
         const respuesta   = iaRespuesta || menuTexto(productos);
-        await conv.update({ estado: 'activo' });
+        await conv.update({ estado: 'viendo_producto' });
         await enviarTexto(numero, respuesta);
         await guardarHistorial(conv, 'bot', respuesta);
         return;
@@ -415,7 +415,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     const num = parseInt(msgLower);
     if (!isNaN(num) && num >= 1 && num <= productos.length) {
         const producto = productos[num - 1];
-        await conv.update({ estado: 'activo', producto_id: producto.id });
+        await conv.update({ estado: 'viendo_producto', producto_id: producto.id });
         await enviarDetalleProducto(numero, producto);
         const detalleTexto = `🔥 ${producto.nombre} — ${fmt(producto.precio)}`;
         await guardarHistorial(conv, 'bot', detalleTexto);
@@ -457,7 +457,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         if (quiereComprar && conv.producto_id) updateData.estado = 'esperando_email';
         const mencionaPago = /nequi|daviplata|comprobante|transferencia|bre-b/i.test(iaRespuesta);
         if (mencionaPago && conv.producto_id) updateData.estado = 'esperando_comprobante';
-        if (!conv.estado || conv.estado === 'nuevo') updateData.estado = 'activo';
+        if (!conv.estado || conv.estado === 'nuevo') updateData.estado = 'viendo_producto';
         if (Object.keys(updateData).length) await conv.update(updateData);
         await enviarTexto(numero, iaRespuesta);
         await guardarHistorial(conv, 'bot', iaRespuesta);
