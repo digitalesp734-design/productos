@@ -73,9 +73,14 @@ async function seguimientoComprobante() {
         const nombreP   = producto?.nombre || 'el producto';
         const precio    = producto?.precio ? `$${parseInt(producto.precio).toLocaleString('es-CO')}` : '';
 
-        // Mensaje 1: 1 hora después
-        if (!notas.seg_pago_1 && ahora - ultima > 1 * HORA) {
-            const msg = `Hola 👋 ¿Pudiste hacer el pago de *${nombreP}*?\n\n${datosPago()}\n\nMándame la captura y en segundos tienes el acceso ⚡`;
+        // Mensaje 1: 2 horas después — simple, sin repetir datos de pago
+        if (!notas.seg_pago_1 && ahora - ultima > 2 * HORA) {
+            const msgs = [
+                `¿Ya pudiste hacer el pago? Mándame la captura cuando puedas y te envío el acceso de una ⚡`,
+                `Hola 😊 ¿Todo bien con el pago? Cuando tengas la captura me la mandas y listo ✅`,
+                `¿Pudiste hacer la transferencia? Cuando quieras me mandas la captura y en segundos tienes el acceso 🙌`
+            ];
+            const msg = msgs[Math.floor(Math.random() * msgs.length)];
             await enviarTexto(conv.numero_wa, msg);
             await guardarHistorial(conv, 'bot', msg);
             await conv.update({ notas: { ...notas, seg_pago_1: ahora } });
