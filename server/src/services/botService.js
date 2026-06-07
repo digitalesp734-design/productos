@@ -151,24 +151,33 @@ function buildSystemPrompt(productos) {
     const llave     = process.env.LLAVE_NUMERO     || '';
     const pagNombre = process.env.PAGO_NOMBRE      || '';
 
-    return `Eres una vendedora real por WhatsApp. Nombre: Sofía. Vendes productos digitales.
+    return `Eres Sofía, vendedora de productos digitales por WhatsApp. Eres como una amiga que recomienda algo bueno — nunca una vendedora que presiona.
 
 PRODUCTOS:
 ${lista}
 
 PAGO: Nequi ${nequi}${daviplata ? ' / Daviplata ' + daviplata : ''}${llave ? ' / Bre-b ' + llave : ''}${pagNombre ? ' — ' + pagNombre : ''}
 
-REGLAS ABSOLUTAS:
+FLUJO DE VENTA (respeta este orden):
+1. ENTENDER → Pregunta para qué lo quieren usar (1 sola pregunta, natural)
+2. CONECTAR → Responde sus dudas con beneficios concretos (2-4 intercambios)
+3. CERRAR → Solo cuando el cliente muestre interés claro, pide el correo
+
+SEÑALES CLARAS DE COMPRA (solo entonces pide el correo):
+- Dice "quiero comprarlo", "cómo pago", "lo quiero", "me interesa", "dale"
+- Pregunta por el precio o el método de pago
+- Responde afirmativamente a tu pregunta de cierre
+
+REGLAS:
 - Máximo 2-3 líneas por mensaje. NUNCA más.
-- Escribe como persona real en WhatsApp, no como chatbot
-- Una sola pregunta a la vez, nunca varias
-- Si preguntan por un producto específico, ve directo a ese
-- Si seleccionan número, pide el correo para el acceso
-- Si dan correo, da los datos de pago
-- Si ya pagaron, pide el comprobante (foto)
-- Objeciones: responde corto + pregunta de cierre
-- NUNCA hagas listas largas ni párrafos explicativos
-- Tono: cálido, directo, natural`;
+- Una sola pregunta por mensaje, nunca varias
+- Responde preguntas técnicas completas ANTES de intentar cerrar
+- NO pidas el correo antes de tener mínimo 2 intercambios reales con el cliente
+- NO uses frases como "¿lo pedimos?" o "¿quieres acceder?" en los primeros mensajes
+- Si dan correo, da los datos de pago inmediatamente
+- Si ya pagaron, pide la captura del comprobante
+- Objeciones de precio: empatía + valor concreto + una pregunta
+- Tono: cálido, directo, como mensaje de WhatsApp real — nunca robótico`;
 }
 
 // ── Respuesta IA ──────────────────────────────────────────────────────────────
@@ -346,7 +355,8 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     if (['nuevo', 'activo', 'menu'].includes(estado)) {
         const productoDetectado = detectarProductoMencionado(msgLower, productos);
         if (productoDetectado) {
-            await conv.update({ estado: 'esperando_email', producto_id: productoDetectado.id });
+            // Estado 'activo': el cliente vio el producto pero aún no decidió comprar
+            await conv.update({ estado: 'activo', producto_id: productoDetectado.id });
             await enviarDetalleProducto(numero, productoDetectado);
             await guardarHistorial(conv, 'bot', `🔥 ${productoDetectado.nombre} — ${fmt(productoDetectado.precio)}`);
             return;
@@ -367,7 +377,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     const num = parseInt(msgLower);
     if (!isNaN(num) && num >= 1 && num <= productos.length) {
         const producto = productos[num - 1];
-        await conv.update({ estado: 'esperando_email', producto_id: producto.id });
+        await conv.update({ estado: 'activo', producto_id: producto.id });
         await enviarDetalleProducto(numero, producto);
         const detalleTexto = `🔥 ${producto.nombre} — ${fmt(producto.precio)}`;
         await guardarHistorial(conv, 'bot', detalleTexto);
@@ -388,7 +398,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     // ── Si pregunta por la lista de agentes n8n, dar el link directo ────────────
     if (/agentes?|lista|cuáles|cuales|qué agentes|que agentes|350/i.test(msgLower) && /n8n/i.test(msgLower + (conv.ultimo_mensaje || ''))) {
-        const respuesta = `📋 Aquí está la lista completa de los 350 agentes incluidos:\n${LINK_AGENTES_N8N}\n\n¿Cuál es tu correo para enviarte el acceso? 📧`;
+        const respuesta = `📋 Aquí está la lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}\n\n¿Cuál es el que más te llama la atención? 👀`;
         await enviarTexto(numero, respuesta);
         await guardarHistorial(conv, 'bot', respuesta);
         return;
@@ -404,6 +414,9 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
                 break;
             }
         }
+        // Detectar intención de compra real para cambiar estado a esperando_email
+        const quiereComprar = /correo|email|pagar|lo quiero|me lo llevo|cómo compro|cómo pago|lo pido|dale|listo/i.test(iaRespuesta);
+        if (quiereComprar && conv.producto_id) updateData.estado = 'esperando_email';
         const mencionaPago = /nequi|daviplata|comprobante|transferencia|bre-b/i.test(iaRespuesta);
         if (mencionaPago && conv.producto_id) updateData.estado = 'esperando_comprobante';
         if (!conv.estado || conv.estado === 'nuevo') updateData.estado = 'activo';
