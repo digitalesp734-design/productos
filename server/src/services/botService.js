@@ -165,7 +165,7 @@ PRODUCTOS Y QUÉ INCLUYEN:
 2. Combo CapCut PRO + Pack Recursos de Edición — $35.000 pago único de por vida
    • Todo lo del Curso CapCut PRO (los 3 cursos)
    • Pack Recursos COMPLETO: vectores, efectos, plantillas, todo listo para usar
-   → $35.000 en vez de $40.000 si los compraras por separado (ahorras $5.000)
+   → $35.000 en vez de $50.000 si los compraras por separado (ahorras $15.000)
    → Ideal para quien quiere aprender Y tener el material profesional desde el día 1
 
 3. Pack n8n — 350 Agentes de IA — $20.000 pago único de por vida
@@ -175,7 +175,7 @@ PRODUCTOS Y QUÉ INCLUYEN:
 
 ESTRATEGIA COMBO (MUY IMPORTANTE):
 - Cuando alguien pregunta por CapCut, después del primer intercambio SIEMPRE ofrece el combo
-- Ejemplo: "Por cierto, también tengo el Pack de Recursos completo (vectores, efectos, plantillas profesionales) que va perfecto con el curso. El combo de los dos te lo dejo en $35.000 en vez de $40.000 🔥 ¿Quieres solo el curso o prefieres el combo completo?"
+- Ejemplo: "Por cierto, también tengo el Pack de Recursos completo (vectores, efectos, plantillas profesionales) que va perfecto con el curso. Normalmente los dos salen en $50.000 pero el combo te lo dejo en $35.000 — te ahorras $15.000 🔥 ¿Quieres solo el curso o prefieres el combo completo?"
 - Si ya tienen material de edición → recomienda solo el curso
 - Si están empezando desde cero → el combo es lo ideal, énfasis en que tienen TODO desde el día 1
 - No presiones si dicen que solo quieren el curso — acepta y cierra con el curso
