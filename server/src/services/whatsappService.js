@@ -37,4 +37,19 @@ async function enviarAudio(numero, buffer, mimetype = 'audio/ogg; codecs=opus') 
     }
 }
 
-module.exports = { enviarTexto, enviarAudio };
+async function enviarVideo(numero, urlOBuffer) {
+    const sock = getClient();
+    if (!sock || !urlOBuffer) return null;
+    const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
+    try {
+        const payload = typeof urlOBuffer === 'string'
+            ? { video: { url: urlOBuffer }, mimetype: 'video/mp4' }
+            : { video: urlOBuffer, mimetype: 'video/mp4' };
+        await sock.sendMessage(jid, payload);
+        console.log('🎬 Video enviado a', jid);
+    } catch (e) {
+        console.error('❌ Error enviando video a', jid, ':', e.message);
+    }
+}
+
+module.exports = { enviarTexto, enviarAudio, enviarVideo };

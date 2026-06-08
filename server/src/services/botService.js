@@ -2,7 +2,10 @@ const fs        = require('fs');
 const path      = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const { Producto, Conversacion, Venta, CajaMovimiento } = require('../models');
-const { enviarTexto, enviarAudio } = require('./whatsappService');
+const { enviarTexto, enviarAudio, enviarVideo } = require('./whatsappService');
+
+// Video catálogo de EmulaConsolas (ruta local en el servidor)
+const VIDEO_EMULADORA = path.join(__dirname, '../assets/videos/emuladora_catalogo.mp4');
 
 const fmt = p => `$${parseInt(p).toLocaleString('es-CO')}`;
 
@@ -127,6 +130,7 @@ function detectarProductoMencionado(msgLower, productos) {
         if (n.includes('combo') && (msgLower.includes('combo') || msgLower.includes('recursos') || msgLower.includes('vectores'))) return p;
         if (n.includes('capcut') && !n.includes('combo') && msgLower.includes('capcut')) return p;
         if ((n.includes('n8n') || n.includes('agente')) && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
+        if (n.includes('emula') && (msgLower.includes('emula') || msgLower.includes('juego') || msgLower.includes('consola') || msgLower.includes('playstation') || msgLower.includes('xbox') || msgLower.includes('nintendo'))) return p;
     }
     return null;
 }
@@ -168,7 +172,14 @@ PRODUCTOS Y QUÉ INCLUYEN:
    → $35.000 en vez de $50.000 si los compraras por separado (ahorras $15.000)
    → Ideal para quien quiere aprender Y tener el material profesional desde el día 1
 
-3. Pack n8n — 350 Agentes de IA — $20.000 pago único de por vida
+3. EmulaConsolas — 16.000 Juegos — $30.000 pago único de por vida
+   • +16.000 juegos de 32 consolas: PlayStation, Xbox, Nintendo, PC y más
+   • God of War, títulos de PS2, PS3, SNES, N64, todo incluido
+   • Se instala en PC, tablet o celular — 100% digital
+   • Entrega al correo: links de descarga + tutoriales de instalación
+   → Ideal para: gamers que quieren revivir los clásicos o jugar sin pagar mensualidades
+
+4. Pack n8n — 350 Agentes de IA — $20.000 pago único de por vida
    → 350 automatizaciones listas: ventas, atención al cliente, marketing, CRM, redes sociales
    → No necesita conocimientos técnicos — importas el agente y lo activas
    → Ideal para: negocios que quieren automatizar sin programar
@@ -252,12 +263,35 @@ function preguntaPersuasiva(nombreProducto) {
         '¿Cuántos videos más o menos editas a la semana?'
     ][Math.floor(Math.random() * 3)];
 
+    if (/emula/i.test(nombreProducto)) return [
+        '¿Tienes PC, celular o tablet? Así te digo cómo instalarlo 🎮',
+        '¿Ya jugabas PlayStation o Xbox antes, o llevas tiempo sin jugar? 🕹️',
+        '¿Cuál era tu consola favorita? PlayStation, Nintendo, Xbox...'
+    ][Math.floor(Math.random() * 3)];
+
     return '¿Para qué lo necesitas principalmente? Así te cuento qué parte te va a servir más 😊';
 }
 
 async function enviarDetalleProducto(numero, producto) {
-    const audio = getAudioProducto(producto.nombre);
-    const esN8n = /n8n|agente/i.test(producto.nombre);
+    const audio    = getAudioProducto(producto.nombre);
+    const esN8n    = /n8n|agente/i.test(producto.nombre);
+    const esEmula  = /emula/i.test(producto.nombre);
+
+    // Emuladora: enviar video catálogo
+    if (esEmula) {
+        const intro = `🎮 *EmulaConsolas* — ${fmt(producto.precio)} pago único\n\n+16.000 juegos de 32 consolas. Mira el catálogo 👇`;
+        await enviarTexto(numero, intro);
+        await new Promise(r => setTimeout(r, 800));
+        const videoBuffer = fs.existsSync(VIDEO_EMULADORA) ? fs.readFileSync(VIDEO_EMULADORA) : null;
+        if (videoBuffer) {
+            await enviarVideo(numero, videoBuffer);
+        } else if (process.env.VIDEO_EMULADORA_URL) {
+            await enviarVideo(numero, process.env.VIDEO_EMULADORA_URL);
+        }
+        await new Promise(r => setTimeout(r, 1200));
+        await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
+        return;
+    }
 
     if (audio) {
         // 1. Intro corta

@@ -114,10 +114,25 @@ async function seed() {
         console.log('✅ Producto n8n actualizado/creado');
     }
 
-    // Limpiar productos extra (mantener solo los 3 correctos)
-    if (capcut && combo && n8n) {
-        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id})`);
-        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id})`);
+    const datosEmuladora = {
+        nombre:      'EmulaConsolas — 16.000 Juegos',
+        descripcion: 'Accede a más de 16.000 juegos de 32 consolas: PlayStation, Xbox, Nintendo y más. 100% digital, instálalo en tu PC, tablet o celular. Pago único de por vida.',
+        precio:      30000,
+        link_drive:  '🎮 *¡Gracias por tu compra del EmulaConsolas!* 🙌\nIngresa al siguiente archivo 📁 para acceder a toda la información, instrucciones y contenido completo del producto.\n\n*1. Cómo descargarlo:*\n🎥 https://www.youtube.com/watch?v=jrUssqaLNcM\n📥 Enlace de descarga: https://uploadnow.io/es/share?utm_source=8mQlmkG\n🔑 Contraseña: StaRsEmulaConsola!\n\n*2. Cómo agregar juegos de PS1:*\nhttps://www.youtube.com/watch?v=47nIVTbf5C4\n\n*3. Cómo agregar juegos de PS2:*\nhttps://www.youtube.com/watch?v=jScX8nNikmQ\n\n*4. Cómo agregar juegos de PS3:*\nhttps://www.youtube.com/watch?v=CS3fwJzVrYw\n\n*5. Cómo agregar juegos de PC:*\nhttps://www.youtube.com/watch?v=8JH6KgqU86w\n\n*6. Posibles errores:*\nhttps://www.youtube.com/watch?v=M_xAoLjDCE8',
+        activo:      true,
+        orden:       5
+    };
+
+    let emuladora = await Producto.findOne({ where: { nombre: 'EmulaConsolas — 16.000 Juegos' } });
+    if (!emuladora) {
+        emuladora = await Producto.create(datosEmuladora);
+        console.log('✅ Producto EmulaConsolas creado');
+    }
+
+    // Limpiar productos extra (mantener solo los 4 correctos)
+    if (capcut && combo && n8n && emuladora) {
+        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${emuladora.id})`);
+        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${emuladora.id})`);
         if (deleted?.affectedRows > 0) console.log(`🗑️ Eliminados ${deleted.affectedRows} productos extra`);
     }
 }
