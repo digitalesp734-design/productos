@@ -8,6 +8,9 @@ let status = 'disconnected';
 let preKeysReady = false;
 const msgQueue = [];
 
+// Deduplicación: evita procesar el mismo mensaje dos veces (Baileys a veces lo emite doble)
+const processedIds = new Set();
+
 // Último mensaje completo recibido por JID — para respuestas citadas
 const lastMsg = new Map();
 
@@ -249,6 +252,20 @@ async function iniciar() {
             if (msg.key.fromMe) continue;
             const jid = msg.key.remoteJid || '';
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
+
+            // Ignorar mensajes ya procesados (Baileys a veces emite duplicados)
+            const msgId = msg.key.id;
+            if (msgId && processedIds.has(msgId)) {
+                console.log('⚠️ Duplicado ignorado:', msgId);
+                continue;
+            }
+            if (msgId) {
+                processedIds.add(msgId);
+                if (processedIds.size > 500) {
+                    const iter = processedIds.values();
+                    for (let i = 0; i < 100; i++) processedIds.delete(iter.next().value);
+                }
+            }
 
             // Guardar mensaje completo para quoted reply y resolución de LID desde store
             lastMsg.set(jid, msg);
