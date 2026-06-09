@@ -150,7 +150,7 @@ function getAudioProducto(nombreProducto) {
 }
 
 // ── Sistema prompt ultra-compacto, WhatsApp real ──────────────────────────────
-function buildSystemPrompt(productos, productoActual = null) {
+function buildSystemPrompt(productos, productoActual = null, intercambios = 0) {
     const nequi     = process.env.NEQUI_NUMERO     || '';
     const daviplata = process.env.DAVIPLATA_NUMERO || '';
     const llave     = process.env.LLAVE_NUMERO     || '';
@@ -228,13 +228,21 @@ REGLAS DE FORMATO:
 • Emojis con moderación
 • Tono: amigo que recomienda con convicción, no vendedor que presiona
 • Si dan correo → datos de pago de inmediato
-• Si ya pagaron → pide captura del comprobante`;
+• Si ya pagaron → pide captura del comprobante
+
+${intercambios >= 3 && productoActual ? `🚨 MODO CIERRE ACTIVO (llevamos ${intercambios} intercambios):
+Ya conectaste con el cliente. Ahora CIERRA. En este mensaje:
+1. Valida brevemente lo que dijo (1 línea máximo)
+2. Cierre directo: "Oye, ¿te animas? Son solo ${fmt(productoActual.precio)} de por vida, sin mensualidades. ¿Me das tu correo y te envío el acceso en segundos? 🚀"
+NO hagas más preguntas de descubrimiento. El cliente ya sabe lo suficiente para decidir.` : ''}
+`;
 }
 
 // ── Respuesta IA ──────────────────────────────────────────────────────────────
 async function respuestaIA(msg, conv, productos) {
     const productoActual = conv.producto_id ? productos.find(p => p.id === conv.producto_id) || null : null;
-    const sistema   = buildSystemPrompt(productos, productoActual);
+    const intercambios = (conv.historial || []).filter(h => h.rol === 'user').length;
+    const sistema   = buildSystemPrompt(productos, productoActual, intercambios);
     const historial = (conv.historial || []).slice(-20).map(h => ({
         role:    h.rol === 'bot' ? 'assistant' : 'user',
         content: h.texto
@@ -446,28 +454,29 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
-    // ── Mención directa de producto → audio inmediato ────────────────────────
+    // ── Mención directa de producto → audio/video inmediato ─────────────────
     if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
         const productoDetectado = detectarProductoMencionado(msgLower, productos);
         if (productoDetectado) {
-            // Si ya enviamos detalle de este producto en los últimos 5 min, no repetir
+            // Re-leer DB para evitar race condition con mensajes concurrentes
+            const convFresh = await Conversacion.findOne({ where: { numero_wa: numero } });
             const CINCO_MIN = 5 * 60 * 1000;
-            const yaEnviado = (conv.historial || []).slice(-6).some(h =>
+            const yaViendo  = convFresh.estado === 'viendo_producto' && convFresh.producto_id === productoDetectado.id;
+            const yaEnviado = (convFresh.historial || []).slice(-6).some(h =>
                 h.rol === 'bot' && h.texto?.includes(productoDetectado.nombre) && (Date.now() - (h.ts || 0)) < CINCO_MIN
             );
-            if (yaEnviado) {
-                // Solo responder con IA en lugar de reenviar el producto completo
-                const iaRespuesta = await respuestaIA(msg, conv, productos);
+            if (yaEnviado || yaViendo) {
+                const iaRespuesta = await respuestaIA(msg, convFresh, productos);
                 if (iaRespuesta) {
                     await enviarTexto(numero, iaRespuesta);
-                    await guardarHistorial(conv, 'bot', iaRespuesta);
+                    await guardarHistorial(convFresh, 'bot', iaRespuesta);
                 }
                 return;
             }
-            // Estado 'viendo_producto': el cliente vio el producto pero aún no decidió comprar
+            // Guardar en DB ANTES de enviar (previene race condition: 2do msg llega durante el envío del video)
             await conv.update({ estado: 'viendo_producto', producto_id: productoDetectado.id });
-            await enviarDetalleProducto(numero, productoDetectado);
             await guardarHistorial(conv, 'bot', `🔥 ${productoDetectado.nombre} — ${fmt(productoDetectado.precio)}`);
+            await enviarDetalleProducto(numero, productoDetectado);
             return;
         }
     }

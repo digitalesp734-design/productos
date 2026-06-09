@@ -133,7 +133,7 @@ async function seguimientoEmail() {
     }
 }
 
-// ── 3. Vio el producto pero no siguió — re-enganchar, NO presionar ────────────
+// ── 3. Vio el producto pero no siguió — 3 etapas de seguimiento ──────────────
 async function seguimientoInteres() {
     const pendientes = await Conversacion.findAll({
         where: {
@@ -144,28 +144,56 @@ async function seguimientoInteres() {
     });
 
     for (const conv of pendientes) {
-        const notas  = conv.notas || {};
-        const ahora  = Date.now();
-        const ultima = new Date(conv.updatedAt).getTime();
-        if (notas.seg_interes_1 || ahora - ultima > 24 * HORA) continue;
-
+        const notas   = conv.notas || {};
+        const ahora   = Date.now();
+        const ultima  = new Date(conv.updatedAt).getTime();
         const producto = await Producto.findByPk(conv.producto_id);
         if (!producto) continue;
 
-        // Followup personalizado con IA según el historial real del cliente
+        const precio = `$${parseInt(producto.precio).toLocaleString('es-CO')}`;
         const ultimoUser = [...(conv.historial || [])].reverse().find(h => h.rol === 'user');
-        const contexto = ultimoUser?.texto
-            ? `El cliente dijo: "${ultimoUser.texto}". Re-abre la conversación con algo relacionado a eso.`
-            : `El cliente vio el producto pero no respondió. Pregunta algo que genere curiosidad.`;
 
-        const msg = await generarFollowupIA(conv, producto, contexto) ||
-            `Hola 👋 ¿Quedaste con alguna duda del producto? Aquí estoy 😊`;
+        // Etapa 1: 3h después — IA personalizada, re-abre conversación
+        if (!notas.seg_interes_1 && ahora - ultima >= 3 * HORA && ahora - ultima < 48 * HORA) {
+            const contexto = ultimoUser?.texto
+                ? `El cliente dijo: "${ultimoUser.texto}". Re-abre con algo relacionado a eso.`
+                : `El cliente vio el producto pero no respondió. Pregunta algo que genere curiosidad.`;
+            const msg = await generarFollowupIA(conv, producto, contexto) ||
+                `Hola 👋 ¿Quedaste con alguna duda del ${producto.nombre}? Aquí estoy 😊`;
+            await enviarTexto(conv.numero_wa, msg);
+            await guardarHistorial(conv, 'bot', msg);
+            await conv.update({ notas: { ...notas, seg_interes_1: ahora } });
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
+        }
 
-        await enviarTexto(conv.numero_wa, msg);
-        await guardarHistorial(conv, 'bot', msg);
-        await conv.update({ notas: { ...notas, seg_interes_1: ahora } });
+        // Etapa 2: 12h después — menciona el precio, urgencia suave
+        if (!notas.seg_interes_2 && notas.seg_interes_1 && ahora - notas.seg_interes_1 >= 9 * HORA) {
+            const esN8n = /n8n|agente/i.test(producto.nombre);
+            const esEmula = /emula/i.test(producto.nombre);
+            let msg;
+            if (esN8n) {
+                msg = `Oye, solo para contarte — el pack de n8n son ${precio} de por vida, sin mensualidades. ¿Cuántas horas semanales te está tomando lo que quieres automatizar? 💡`;
+            } else if (esEmula) {
+                msg = `¿Llegaste a ver el catálogo de juegos? Son +16.000 títulos por ${precio} único — nada más que pagar nunca 🎮 ¿Tienes PC, celu o tablet?`;
+            } else {
+                msg = `Oye, quería confirmarte que el pack CapCut son ${precio} de por vida — acceso permanente a los 3 cursos. ¿Cuál era tu duda principal? 🎬`;
+            }
+            await enviarTexto(conv.numero_wa, msg);
+            await guardarHistorial(conv, 'bot', msg);
+            await conv.update({ notas: { ...notas, seg_interes_2: ahora } });
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
+        }
 
-        await new Promise(r => setTimeout(r, 1200));
+        // Etapa 3: 24h después — cierre suave, último intento
+        if (!notas.seg_interes_3 && notas.seg_interes_2 && ahora - notas.seg_interes_2 >= 12 * HORA) {
+            const msg = `Hola 👋 Te escribo por última vez. Si en algún momento quieres el acceso son solo ${precio} de por vida — me mandas tu correo y te lo envío en segundos. Sin afán 😊`;
+            await enviarTexto(conv.numero_wa, msg);
+            await guardarHistorial(conv, 'bot', msg);
+            await conv.update({ notas: { ...notas, seg_interes_3: ahora } });
+            await new Promise(r => setTimeout(r, 1500));
+        }
     }
 }
 
