@@ -265,7 +265,6 @@ REGLAS ABSOLUTAS DE CONVERSACIÓN:
 ${bloqueObjeciones}
 ${modoCierre}`;
 }
-}
 
 // ── Respuesta IA ──────────────────────────────────────────────────────────────
 async function respuestaIA(msg, conv, productos) {
