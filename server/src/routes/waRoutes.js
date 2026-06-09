@@ -141,6 +141,67 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
     }, 200);
 });
 
+// Broadcast de oferta especial a leads pendientes
+router.post('/broadcast-oferta', auth, async (req, res) => {
+    try {
+        const { descuento } = req.body; // ej: { descuento: 2000 } = $2.000 de descuento
+        res.json({ ok: true, msg: 'Broadcast de oferta iniciando...' });
+        setTimeout(async () => {
+            const { Op } = require('sequelize');
+            const { enviarTexto } = require('../services/whatsappService');
+            const delay = ms => new Promise(r => setTimeout(r, ms));
+            let enviados = 0;
+
+            const pendientes = await Conversacion.findAll({
+                where: {
+                    estado: { [Op.in]: ['viendo_producto', 'menu', 'esperando_email'] },
+                    updatedAt: { [Op.gt]: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+                },
+                include: [{ model: Producto, as: 'producto', required: false }]
+            });
+
+            for (const conv of pendientes) {
+                const notas  = conv.notas || {};
+                if (notas.oferta_enviada) continue;
+                const nombre = (conv.nombre_cliente || '').split(' ')[0] || 'hola';
+                const prod   = conv.producto;
+                const desc   = descuento || 2000;
+                let msg = null;
+
+                if (prod) {
+                    const precioOferta = parseInt(prod.precio) - desc;
+                    const fmt = p => `$${parseInt(p).toLocaleString('es-CO')}`;
+                    const esCapcut = /capcut/i.test(prod.nombre) && !/combo/i.test(prod.nombre);
+                    const esN8n    = /n8n/i.test(prod.nombre);
+                    const esEmula  = /emula/i.test(prod.nombre);
+
+                    if (esCapcut) {
+                        msg = `Hola ${nombre} 👋 Te escribo porque esta semana tenemos el pack CapCut en ${fmt(precioOferta)} (normalmente ${fmt(prod.precio)}). Si lo confirmas hoy te lo dejo a ese precio. ¿Lo tomamos? 🎬`;
+                    } else if (esN8n) {
+                        msg = `Hola ${nombre} 👋 Por los primeros en confirmar esta semana, el pack de n8n queda en ${fmt(precioOferta)}. Son 350 agentes de por vida — ¿te animas? 🤖`;
+                    } else if (esEmula) {
+                        msg = `Hola ${nombre} 👋 Esta semana el pack de consolas está en ${fmt(precioOferta)} (normalmente ${fmt(prod.precio)}). +16.000 juegos de por vida. ¿Lo tomamos? 🎮`;
+                    }
+                } else {
+                    msg = `Hola ${nombre} 👋 Esta semana tenemos una oferta especial en nuestros productos digitales. ¿Cuál te interesaba más — CapCut, automatizaciones n8n o la emuladora de juegos? 😊`;
+                }
+
+                if (msg) {
+                    try {
+                        await enviarTexto(conv.numero_wa, msg);
+                        await conv.update({ notas: { ...notas, oferta_enviada: Date.now() } });
+                        enviados++;
+                        await delay(3000);
+                    } catch (e) { console.error('Error oferta a', conv.numero_wa, e.message); }
+                }
+            }
+            console.log(`[Oferta] ${enviados} mensajes enviados`);
+        }, 300);
+    } catch (e) {
+        res.status(500).json({ ok: false, msg: e.message });
+    }
+});
+
 // Disparar seguimientos manualmente
 router.post('/followup-ahora', auth, async (req, res) => {
     try {

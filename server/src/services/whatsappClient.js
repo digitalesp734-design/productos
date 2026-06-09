@@ -8,6 +8,20 @@ let status = 'disconnected';
 let preKeysReady = false;
 const msgQueue = [];
 
+// Alerta Telegram para eventos críticos del bot
+async function alertarTelegram(mensaje) {
+    const token  = process.env.PLATAFORMA_TELEGRAM_TOKEN;
+    const chatId = process.env.PLATAFORMA_TELEGRAM_CHAT_ID;
+    if (!token || !chatId) return;
+    try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: mensaje, parse_mode: 'Markdown' })
+        });
+    } catch {}
+}
+
 // Deduplicación: evita procesar el mismo mensaje dos veces (Baileys a veces lo emite doble)
 const processedIds = new Set();
 
@@ -202,6 +216,7 @@ async function iniciar() {
             qrData = qr;
             status = 'qr';
             console.log('📱 QR generado — escanea desde el panel admin');
+            alertarTelegram('📱 *WhatsApp Bot — QR requerido*\nEl bot necesita que escanees el QR.\nEntra al panel admin y escanea para reconectar.');
         }
 
         if (connection === 'close') {
@@ -211,16 +226,16 @@ async function iniciar() {
             const loggedOut = code === DisconnectReason.loggedOut;
             console.log('WhatsApp desconectado, código:', code);
             if (loggedOut) {
+                alertarTelegram('🔴 *WhatsApp Bot DESCONECTADO — Sesión revocada*\nAlguien cerró la sesión desde el celular. Entra al panel y escanea el QR para reconectar.');
                 console.log('Sesión revocada — limpiando credenciales...');
-                // Remover saveCreds ANTES de limpiar para evitar que re-grabe las creds inválidas
                 try { sock.ev.removeAllListeners('creds.update'); } catch {}
                 limpiarCredenciales();
-                // Segunda limpieza 300ms después por si saveCreds async ya estaba corriendo
                 setTimeout(() => {
                     limpiarCredenciales();
                     iniciar();
                 }, 300);
             } else {
+                alertarTelegram(`⚠️ *WhatsApp Bot desconectado* (código ${code})\nReconectando en 5 segundos automáticamente...`);
                 console.log('Reconectando en 5 segundos...');
                 setTimeout(iniciar, 5000);
             }
@@ -231,6 +246,7 @@ async function iniciar() {
             qrData = null;
             preKeysReady = false;
             console.log('✅ WhatsApp conectado — esperando 30s para pre-keys...');
+            alertarTelegram('✅ *WhatsApp Bot conectado y operativo*\nEl bot está respondiendo mensajes normalmente.');
             setTimeout(async () => {
                 preKeysReady = true;
                 console.log(`✅ Bot operativo — cache LID: ${Object.keys(lidCache).length} contactos`);
