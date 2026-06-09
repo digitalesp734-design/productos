@@ -291,9 +291,23 @@ async function iniciar() {
                 const nombre = msg.pushName || '';
 
                 let tipo = 'text';
-                let texto = msg.message?.conversation
-                    || msg.message?.extendedTextMessage?.text
+                // Extraer texto de todos los formatos posibles, incluyendo mensajes de anuncios IG/FB
+                const m = msg.message || {};
+                let texto = m.conversation
+                    || m.extendedTextMessage?.text
+                    || m.buttonsResponseMessage?.selectedDisplayText
+                    || m.listResponseMessage?.title
+                    || m.templateButtonReplyMessage?.selectedDisplayText
+                    || m.interactiveResponseMessage?.body?.text
+                    || m.nativeFlowResponseMessage?.name
                     || '';
+                // Algunos mensajes de anuncio traen el texto en contextInfo (saludo automático)
+                if (!texto) {
+                    const ctx = m.extendedTextMessage?.contextInfo || m.conversation?.contextInfo;
+                    if (ctx?.forwardingScore >= 0 && m.extendedTextMessage?.text) {
+                        texto = m.extendedTextMessage.text;
+                    }
+                }
                 let mediaBuffer = null;
 
                 if (msg.message?.imageMessage || msg.message?.documentMessage) {
