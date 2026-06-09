@@ -343,17 +343,27 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     const msgLower = msg.toLowerCase();
 
     // ── Audio entrante ────────────────────────────────────────────────────────
-    if (tipo === 'audio' && mediaBuffer) {
-        await guardarHistorial(conv, 'user', '🎤 [audio]');
-        const transcripcion = await transcribirAudio(mediaBuffer);
-        if (transcripcion) {
-            const productos   = await getProductos();
-            const iaRespuesta = await respuestaIA(transcripcion, conv, productos);
-            const respuesta   = iaRespuesta || '¿Me puedes escribir tu pregunta? 😊';
-            await enviarTexto(numero, respuesta);
-            await guardarHistorial(conv, 'bot', respuesta);
+    if (tipo === 'audio') {
+        if (mediaBuffer) {
+            await guardarHistorial(conv, 'user', '🎤 [audio]');
+            const transcripcion = await transcribirAudio(mediaBuffer);
+            if (transcripcion) {
+                const productos   = await getProductos();
+                const iaRespuesta = await respuestaIA(transcripcion, conv, productos);
+                const respuesta   = iaRespuesta || '¿Me puedes escribir tu pregunta? 😊';
+                await enviarTexto(numero, respuesta);
+                await guardarHistorial(conv, 'bot', respuesta);
+            } else {
+                const r = '¿Me puedes escribir tu pregunta? 😊';
+                await enviarTexto(numero, r);
+                await guardarHistorial(conv, 'bot', r);
+            }
         } else {
-            await enviarTexto(numero, '¿Me puedes escribir tu pregunta? 😊');
+            // Audio pero no se pudo descargar (nuevo contacto, key issue)
+            const r = 'Hola 👋 No pude escuchar tu nota de voz. ¿Me escribes tu consulta? 😊';
+            await guardarHistorial(conv, 'user', '🎤 [audio-error]');
+            await enviarTexto(numero, r);
+            await guardarHistorial(conv, 'bot', r);
         }
         return;
     }
@@ -408,7 +418,17 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
-    if (!msg) return;
+    // Sticker u otro tipo no reconocido — responder con saludo
+    if (!msg) {
+        if (conv.estado === 'nuevo') {
+            const r = '¡Hola! 👋 ¿En qué te puedo ayudar hoy?';
+            await enviarTexto(numero, r);
+            await guardarHistorial(conv, 'user', '[sticker/otro]');
+            await guardarHistorial(conv, 'bot', r);
+            await conv.update({ estado: 'viendo_producto' });
+        }
+        return;
+    }
     await guardarHistorial(conv, 'user', msg);
 
     const productos = await getProductos();
@@ -427,6 +447,20 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
         const productoDetectado = detectarProductoMencionado(msgLower, productos);
         if (productoDetectado) {
+            // Si ya enviamos detalle de este producto en los últimos 5 min, no repetir
+            const CINCO_MIN = 5 * 60 * 1000;
+            const yaEnviado = (conv.historial || []).slice(-6).some(h =>
+                h.rol === 'bot' && h.texto?.includes(productoDetectado.nombre) && (Date.now() - (h.ts || 0)) < CINCO_MIN
+            );
+            if (yaEnviado) {
+                // Solo responder con IA en lugar de reenviar el producto completo
+                const iaRespuesta = await respuestaIA(msg, conv, productos);
+                if (iaRespuesta) {
+                    await enviarTexto(numero, iaRespuesta);
+                    await guardarHistorial(conv, 'bot', iaRespuesta);
+                }
+                return;
+            }
             // Estado 'viendo_producto': el cliente vio el producto pero aún no decidió comprar
             await conv.update({ estado: 'viendo_producto', producto_id: productoDetectado.id });
             await enviarDetalleProducto(numero, productoDetectado);
