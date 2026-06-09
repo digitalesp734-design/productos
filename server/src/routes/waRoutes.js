@@ -185,6 +185,24 @@ router.post('/broadcast', auth, async (req, res) => {
     }
 });
 
+// Subir video de EmulaConsolas al volumen de Railway (evita tenerlo en git)
+router.post('/subir-video', auth, async (req, res) => {
+    try {
+        const fs   = require('fs');
+        const path = require('path');
+        const volumen = process.env.WA_AUTH_FOLDER;
+        if (!volumen) return res.status(400).json({ ok: false, msg: 'WA_AUTH_FOLDER no configurado' });
+        const destino = path.join(volumen, 'emuladora_catalogo.mp4');
+        const fuente  = path.join(__dirname, '../assets/videos/emuladora_catalogo.mp4');
+        if (!fs.existsSync(fuente)) return res.status(404).json({ ok: false, msg: 'Video no encontrado en assets' });
+        fs.copyFileSync(fuente, destino);
+        const stats = fs.statSync(destino);
+        res.json({ ok: true, msg: 'Video copiado al volumen', tamano: `${(stats.size / 1024 / 1024).toFixed(1)}MB`, ruta: destino });
+    } catch (e) {
+        res.status(500).json({ ok: false, msg: e.message });
+    }
+});
+
 // Limpiar conversaciones duplicadas sin @ en numero_wa
 router.post('/limpiar-duplicados', auth, async (req, res) => {
     try {
