@@ -8,8 +8,26 @@ const { enviarTexto, enviarAudio, enviarVideo } = require('./whatsappService');
 const VIDEO_EMULADORA = process.env.WA_AUTH_FOLDER
     ? path.join(process.env.WA_AUTH_FOLDER, 'emuladora_catalogo.mp4')
     : path.join(__dirname, '../assets/videos/emuladora_catalogo.mp4');
-// Fallback al assets si el volumen no tiene el video
 const VIDEO_EMULADORA_FALLBACK = path.join(__dirname, '../assets/videos/emuladora_catalogo.mp4');
+
+// Comprobantes de prueba social
+const COMPROBANTES_DIR = process.env.WA_AUTH_FOLDER
+    ? path.join(process.env.WA_AUTH_FOLDER, 'comprobantes')
+    : path.join(__dirname, '../assets/comprobantes');
+
+function getComprobante() {
+    try {
+        const dirs = [COMPROBANTES_DIR, path.join(__dirname, '../assets/comprobantes')];
+        for (const dir of dirs) {
+            if (!fs.existsSync(dir)) continue;
+            const archivos = fs.readdirSync(dir).filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f));
+            if (!archivos.length) continue;
+            const random = archivos[Math.floor(Math.random() * archivos.length)];
+            return fs.readFileSync(path.join(dir, random));
+        }
+    } catch {}
+    return null;
+}
 
 const fmt = p => `$${parseInt(p).toLocaleString('es-CO')}`;
 
@@ -133,7 +151,8 @@ function detectarProductoMencionado(msgLower, productos) {
         // Combo primero si lo mencionan explícitamente
         if (n.includes('combo') && (msgLower.includes('combo') || msgLower.includes('recursos') || msgLower.includes('vectores'))) return p;
         if (n.includes('capcut') && !n.includes('combo') && msgLower.includes('capcut')) return p;
-        if ((n.includes('n8n') || n.includes('agente')) && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
+        if (n.includes('n8n') && n.includes('premium') && (msgLower.includes('premium') || msgLower.includes('curso') || msgLower.includes('hosting') || msgLower.includes('nube'))) return p;
+        if ((n.includes('n8n') || n.includes('agente')) && !n.includes('premium') && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
         if (n.includes('emula') && (msgLower.includes('emula') || msgLower.includes('juego') || msgLower.includes('consola') || msgLower.includes('playstation') || msgLower.includes('xbox') || msgLower.includes('nintendo'))) return p;
     }
     return null;
@@ -161,9 +180,10 @@ function buildSystemPrompt(productos, productoActual = null, intercambios = 0) {
     const pagNombre = process.env.PAGO_NOMBRE      || '';
     const pago      = `Nequi ${nequi}${daviplata ? ' / Daviplata ' + daviplata : ''}${llave ? ' / Bre-b ' + llave : ''}${pagNombre ? ' — ' + pagNombre : ''}`;
 
-    const esCapcut  = productoActual && /capcut/i.test(productoActual.nombre) && !/combo/i.test(productoActual.nombre);
-    const esN8n     = productoActual && /n8n|agente/i.test(productoActual.nombre);
-    const esEmula   = productoActual && /emula/i.test(productoActual.nombre);
+    const esCapcut    = productoActual && /capcut/i.test(productoActual.nombre) && !/combo/i.test(productoActual.nombre);
+    const esN8n       = productoActual && /n8n|agente/i.test(productoActual.nombre) && !/premium/i.test(productoActual.nombre);
+    const esN8nPremium= productoActual && /n8n/i.test(productoActual.nombre) && /premium/i.test(productoActual.nombre);
+    const esEmula     = productoActual && /emula/i.test(productoActual.nombre);
     const precio    = productoActual ? fmt(productoActual.precio) : '';
 
     // ── Bloque de producto actual ──────────────────────────────────────────────
@@ -174,15 +194,24 @@ REGLA #1: NUNCA cambies de producto ni menciones otros. Solo hablas de "${produc
 REGLA #2: NUNCA ofrezcas el combo CapCut a clientes de n8n o EmulaConsolas.
 ═══════════════════════════════════════
 ${esN8n ? `
-QUÉ ES: 350 workflows/agentes listos para importar directamente en n8n. NO son cursos — son automatizaciones que el cliente activa en su negocio hoy mismo.
-BENEFICIOS REALES: ahorra 10-20 horas semanales, sus procesos corren solos 24/7, sin programar.
-AGENTES INCLUIDOS: atención al cliente WhatsApp/IG, publicación automática en redes, CRM ventas, facturación, email marketing, gestión de inventarios, y 340 más.
+QUÉ ES: 350 workflows/agentes listos para importar directamente en n8n. Actívalos hoy, sin programar.
+BENEFICIOS: ahorra 10-20h semanales, procesos 24/7 automáticos.
+AGENTES: atención al cliente WhatsApp/IG, CRM ventas, email marketing, publicación redes, facturación y 340 más.
+UPSELL PREMIUM (ofrecerlo si el cliente dice que no tiene n8n o no sabe cómo instalarlo):
+  "Oye, tengo una versión completa que incluye además el curso desde cero y te dejamos n8n funcionando en la nube GRATIS. Son $35.000 en vez de $20.000 — ¿te interesa o prefieres solo los agentes?"
 CONVERSACIÓN IDEAL:
-  Cristian: ¿Qué proceso en tu negocio más tiempo te quita cada semana?
-  Cliente: responder mensajes de clientes
-  Cristian: Ese agente existe — automatiza respuestas de WhatsApp e Instagram 24/7. ¿Ya tienes n8n o empezarías desde cero?
+  Cristian: ¿Qué proceso en tu negocio más tiempo te quita?
+  Cliente: responder mensajes
+  Cristian: Ese agente existe — automatiza WhatsApp e IG 24/7. ¿Ya tienes n8n instalado?
   Cliente: no tengo nada
-  Cristian: Perfecto. Incluye guía de instalación paso a paso. Por ${precio} de por vida dejas de responder manualmente. ¿Me das tu correo?` : ''}
+  Cristian: Perfecto, tengo una versión que incluye el curso y te deja n8n en la nube gratis — $35.000 de por vida. ¿Te animas?` : ''}
+${esN8nPremium ? `
+QUÉ ES: Pack COMPLETO — 350 agentes listos + Curso n8n desde cero hasta profesional + instalación y hosting de n8n en la nube 100% GRATIS. TODO incluido, un solo pago de por vida.
+BENEFICIOS: aprende n8n desde cero, activa 350 automatizaciones, n8n corriendo en la nube sin pagar servidor.
+CONVERSACIÓN IDEAL:
+  Cliente: no sé nada de n8n
+  Cristian: Perfecto para ti. El pack incluye el curso completo desde cero + 350 agentes + te dejamos n8n en la nube gratis. Por $35.000 de por vida. ¿Me das tu correo?
+NUNCA ofrezcas el combo de CapCut a este cliente.` : ''}
 ${esCapcut ? `
 QUÉ ES: Pack de 3 cursos completos — CapCut PRO, Edición de Video Profesional, Photoshop PRO. Acceso de por vida.
 BENEFICIOS REALES: crea reels virales, edita videos profesionales, diseña piezas en Photoshop — todo desde cero.
@@ -563,6 +592,27 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         if (iaRespuesta) {
             await enviarTexto(numero, iaRespuesta);
             await guardarHistorial(conv, 'bot', iaRespuesta);
+        }
+        return;
+    }
+
+    // ── Prueba social: enviar comprobante cuando dudan de la legitimidad ────────
+    if (/legítimo|legitimo|real|estafa|seguro|confiar|prueba|evidencia|comprobante.*otros|pagaron|otros clientes|funciona.*real|es verdad|mentira/i.test(msgLower)) {
+        const buffer = getComprobante();
+        if (buffer) {
+            await enviarTexto(numero, 'Mira, acá te muestro uno de los pagos recientes de otros clientes 👇');
+            await new Promise(r => setTimeout(r, 500));
+            const { getClient } = require('./whatsappClient');
+            const sock = getClient();
+            const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
+            if (sock) await sock.sendMessage(jid, { image: buffer, caption: '✅ Comprobante de pago real — llevamos cientos de compradores satisfechos 🙌' });
+            await new Promise(r => setTimeout(r, 800));
+            const cierre = `¿Cuál es tu duda principal? Te la resuelvo ahora mismo 😊`;
+            await enviarTexto(numero, cierre);
+            await guardarHistorial(conv, 'bot', '[comprobante enviado] ' + cierre);
+        } else {
+            const iaRespuesta = await respuestaIA(msg, conv, productos);
+            if (iaRespuesta) { await enviarTexto(numero, iaRespuesta); await guardarHistorial(conv, 'bot', iaRespuesta); }
         }
         return;
     }

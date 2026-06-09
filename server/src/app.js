@@ -114,6 +114,21 @@ async function seed() {
         console.log('✅ Producto n8n actualizado/creado');
     }
 
+    // Pack n8n Premium: curso desde cero + hosting gratuito en la nube
+    const datosN8nPremium = {
+        nombre:      'Pack n8n Premium — Curso + Hosting Gratis',
+        descripcion: '350 agentes listos + Curso completo n8n desde cero hasta profesional + instalación y hosting de n8n en la nube 100% GRATIS. Todo incluido, pago único de por vida.',
+        precio:      35000,
+        link_drive:  'https://drive.google.com/drive/folders/191XWRGRXJmLCaULa2lLp4G_QXf63oesw?usp=sharing',
+        activo:      true,
+        orden:       3
+    };
+    let n8nPremium = await Producto.findOne({ where: { nombre: 'Pack n8n Premium — Curso + Hosting Gratis' } });
+    if (!n8nPremium) {
+        n8nPremium = await Producto.create(datosN8nPremium);
+        console.log('✅ Pack n8n Premium creado');
+    }
+
     const datosEmuladora = {
         nombre:      'EmulaConsolas — 16.000 Juegos',
         descripcion: 'Accede a más de 16.000 juegos de 32 consolas: PlayStation, Xbox, Nintendo y más. 100% digital, instálalo en tu PC, tablet o celular. Pago único de por vida.',
@@ -129,10 +144,10 @@ async function seed() {
         console.log('✅ Producto EmulaConsolas creado');
     }
 
-    // Limpiar productos extra (mantener solo los 4 correctos)
-    if (capcut && combo && n8n && emuladora) {
-        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${emuladora.id})`);
-        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${emuladora.id})`);
+    // Limpiar productos extra (mantener solo los 5 correctos)
+    if (capcut && combo && n8n && n8nPremium && emuladora) {
+        await sequelize.query(`UPDATE Conversacions SET producto_id = NULL WHERE producto_id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${n8nPremium.id}, ${emuladora.id})`);
+        const [deleted] = await sequelize.query(`DELETE FROM Productos WHERE id NOT IN (${capcut.id}, ${combo.id}, ${n8n.id}, ${n8nPremium.id}, ${emuladora.id})`);
         if (deleted?.affectedRows > 0) console.log(`🗑️ Eliminados ${deleted.affectedRows} productos extra`);
     }
 }

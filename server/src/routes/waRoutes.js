@@ -185,6 +185,25 @@ router.post('/broadcast', auth, async (req, res) => {
     }
 });
 
+// Subir comprobantes de prueba social al volumen de Railway
+router.post('/subir-comprobantes', auth, async (req, res) => {
+    try {
+        const fs   = require('fs');
+        const path = require('path');
+        const volumen = process.env.WA_AUTH_FOLDER;
+        if (!volumen) return res.status(400).json({ ok: false, msg: 'WA_AUTH_FOLDER no configurado' });
+        const destDir = path.join(volumen, 'comprobantes');
+        fs.mkdirSync(destDir, { recursive: true });
+        const srcDir = path.join(__dirname, '../assets/comprobantes');
+        if (!fs.existsSync(srcDir)) return res.status(404).json({ ok: false, msg: 'Carpeta assets/comprobantes no existe' });
+        const archivos = fs.readdirSync(srcDir).filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f));
+        archivos.forEach(f => fs.copyFileSync(path.join(srcDir, f), path.join(destDir, f)));
+        res.json({ ok: true, copiados: archivos.length, archivos });
+    } catch (e) {
+        res.status(500).json({ ok: false, msg: e.message });
+    }
+});
+
 // Subir video de EmulaConsolas al volumen de Railway (evita tenerlo en git)
 router.post('/subir-video', auth, async (req, res) => {
     try {
