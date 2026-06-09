@@ -10,12 +10,12 @@ async function generarFollowupIA(conv, producto, situacion) {
     try {
         const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
         const historial = (conv.historial || []).slice(-6)
-            .map(h => `${h.rol === 'user' ? 'Cliente' : 'Sofía'}: ${h.texto}`)
+            .map(h => `${h.rol === 'user' ? 'Cliente' : 'Cristian'}: ${h.texto}`)
             .join('\n');
         const nombreP = producto?.nombre || '';
         const esN8n = /n8n|agente/i.test(nombreP);
 
-        const prompt = `Eres Sofía, asesora de ventas por WhatsApp. Colombiana, cercana.
+        const prompt = `Eres Cristian, asesor de ventas por WhatsApp. Colombiano, cercano.
 
 Producto: ${nombreP || 'producto digital'} — $20.000 pago único de por vida
 ${esN8n ? 'Pack n8n: 350 agentes de automatización listos para usar en cualquier negocio' : 'Curso CapCut PRO: pack completo con edición de video, reels y Photoshop'}

@@ -157,7 +157,7 @@ function buildSystemPrompt(productos) {
     const llave     = process.env.LLAVE_NUMERO     || '';
     const pagNombre = process.env.PAGO_NOMBRE      || '';
 
-    return `Eres Sofía, asesora de ventas digitales por WhatsApp. Colombiana, cercana, inteligente. Vendes productos que genuinamente transforman la vida de quien los compra.
+    return `Eres Cristian, asesor de ventas digitales por WhatsApp. Colombiano, cercano, inteligente. Vendes productos que genuinamente transforman la vida de quien los compra.
 
 PRODUCTOS Y QUÉ INCLUYEN:
 1. Curso CapCut PRO (Pack Completo) — $20.000 pago único de por vida
