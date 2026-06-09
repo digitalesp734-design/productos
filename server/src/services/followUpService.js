@@ -15,17 +15,23 @@ async function generarFollowupIA(conv, producto, situacion) {
         const nombreP = producto?.nombre || '';
         const esN8n = /n8n|agente/i.test(nombreP);
 
-        const prompt = `Eres Cristian, asesor de ventas por WhatsApp. Colombiano, cercano.
+        const precio = producto?.precio ? `$${parseInt(producto.precio).toLocaleString('es-CO')}` : '$20.000';
+        const esEmula = /emula/i.test(nombreP);
+        let contextoProducto = '';
+        if (esN8n) contextoProducto = `Pack n8n: 350 agentes de automatización listos para importar. ${precio} de por vida, sin programar.`;
+        else if (esEmula) contextoProducto = `EmulaConsolas: +16.000 juegos de 32 consolas (PS1, PS2, PS3, Xbox, Nintendo). ${precio} de por vida. Instala en PC, celu o tablet.`;
+        else if (nombreP) contextoProducto = `${nombreP}: ${precio} de por vida.`;
 
-Producto: ${nombreP || 'producto digital'} — $20.000 pago único de por vida
-${esN8n ? 'Pack n8n: 350 agentes de automatización listos para usar en cualquier negocio' : 'Curso CapCut PRO: pack completo con edición de video, reels y Photoshop'}
+        const prompt = `Eres Cristian, asesor de ventas por WhatsApp de AI Company CO. Colombiano, cercano y directo.
+
+${contextoProducto || `Producto digital — ${precio} pago único de por vida`}
 
 Conversación previa:
 ${historial || '(sin historial previo)'}
 
 Situación: ${situacion}
 
-Escribe UN mensaje de WhatsApp de máximo 2 líneas. Natural, sin presión, que re-abra la conversación. No menciones "correo" ni "pago" a menos que la situación lo pida. Personaliza según lo que dijo el cliente. Solo el texto del mensaje, sin comillas.`;
+Escribe UN mensaje de WhatsApp de máximo 2 líneas. Natural, sin presión. Personaliza según lo que dijo el cliente. Solo el texto del mensaje, sin comillas ni explicaciones.`;
 
         const resp = await client.messages.create({
             model:      'claude-sonnet-4-6',
@@ -41,6 +47,21 @@ Escribe UN mensaje de WhatsApp de máximo 2 líneas. Natural, sin presión, que 
 
 const MIN  = 60 * 1000;
 const HORA = 60 * MIN;
+
+// Colombia = UTC-5. Solo enviar mensajes entre 8 AM y 10 PM hora Colombia
+function esHorarioHabil() {
+    const horaUTC = new Date().getUTCHours();
+    const horaCol = (horaUTC - 5 + 24) % 24;
+    return horaCol >= 8 && horaCol < 22;
+}
+
+// Detectar si el cliente prometió pagar pronto en los últimos mensajes
+function prometioPagarPronto(historial) {
+    const msgs = (historial || []).slice(-6);
+    return msgs.some(h => h.rol === 'user' &&
+        /dale|listo|ok|perfecto|me lo llevo|lo quiero|voy a pagar|te pago|ahorita|en la tarde|en un rato|mañana pago|ahora pago|lo voy a comprar|me animo|si quiero/i.test(h.texto || '')
+    );
+}
 
 async function guardarHistorial(conv, rol, texto) {
     const historial = [...(conv.historial || []), { rol, texto, ts: Date.now() }].slice(-30);
@@ -202,7 +223,37 @@ async function seguimientoInteres() {
     }
 }
 
-// ── 4. Conversación fría — re-abrir natural ──────────────────────────────────
+// ── 4. Prometió pagar pero no mandó comprobante ──────────────────────────────
+async function seguimientoPago() {
+    const pendientes = await Conversacion.findAll({
+        where: { estado: { [Op.in]: ['viendo_producto', 'esperando_email', 'esperando_comprobante', 'menu'] } }
+    });
+
+    for (const conv of pendientes) {
+        const notas = conv.notas || {};
+        const ahora = Date.now();
+        const ultima = new Date(conv.updatedAt).getTime();
+
+        // Solo si prometió pagar hace entre 1h y 24h, y no le hemos recordado
+        if (notas.seg_pago_recordatorio) continue;
+        if (ahora - ultima < 1 * HORA || ahora - ultima > 24 * HORA) continue;
+        if (!prometioPagarPronto(conv.historial)) continue;
+
+        const producto = conv.producto_id ? await Producto.findByPk(conv.producto_id) : null;
+        const precio = producto ? `$${parseInt(producto.precio).toLocaleString('es-CO')}` : '$20.000';
+
+        const msg = await generarFollowupIA(conv, producto,
+            `El cliente dijo que iba a pagar pero no ha enviado el comprobante. Recuérdale de forma natural y cordial que puede hacer el pago cuando quiera. Menciona el precio (${precio}) y que el acceso llega en segundos tras el comprobante.`
+        ) || `Hola 👋 ¿Pudiste hacer el pago? Cuando tengas la captura me la mandas y en segundos tienes el acceso ⚡`;
+
+        await enviarTexto(conv.numero_wa, msg);
+        await guardarHistorial(conv, 'bot', msg);
+        await conv.update({ notas: { ...notas, seg_pago_recordatorio: ahora } });
+        await new Promise(r => setTimeout(r, 1500));
+    }
+}
+
+// ── 5. Conversación fría — re-abrir natural ──────────────────────────────────
 async function seguimientoFrio() {
     const hace4h  = new Date(Date.now() - 4  * HORA);
     const hace18h = new Date(Date.now() - 18 * HORA);
@@ -255,7 +306,12 @@ async function seguimientoUpsell() {
 
 // ── Ejecutar todo ─────────────────────────────────────────────────────────────
 async function ejecutarSeguimientos() {
+    if (!esHorarioHabil()) {
+        console.log('[FollowUp] Fuera de horario (8am-10pm Colombia) — omitiendo');
+        return;
+    }
     console.log('[FollowUp] Revisando...');
+    try { await seguimientoPago();        } catch (e) { console.error('[FollowUp] pago:', e.message); }
     try { await seguimientoComprobante(); } catch (e) { console.error('[FollowUp] comprobante:', e.message); }
     try { await seguimientoEmail();       } catch (e) { console.error('[FollowUp] email:', e.message); }
     try { await seguimientoInteres();     } catch (e) { console.error('[FollowUp] interes:', e.message); }
