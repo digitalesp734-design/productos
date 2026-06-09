@@ -9,7 +9,7 @@ const { notificarTelegram } = require('./botService');
 async function generarFollowupIA(conv, producto, situacion) {
     try {
         const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        const historial = (conv.historial || []).slice(-6)
+        const historial = (conv.historial || []).slice(-10)
             .map(h => `${h.rol === 'user' ? 'Cliente' : 'Cristian'}: ${h.texto}`)
             .join('\n');
         const nombreP = producto?.nombre || '';
@@ -167,18 +167,23 @@ async function seguimientoInteres() {
             continue;
         }
 
-        // Etapa 2: 12h después — menciona el precio, urgencia suave
+        // Etapa 2: 12h después — IA personalizada con historial + precio
         if (!notas.seg_interes_2 && notas.seg_interes_1 && ahora - notas.seg_interes_1 >= 9 * HORA) {
             const esN8n = /n8n|agente/i.test(producto.nombre);
             const esEmula = /emula/i.test(producto.nombre);
-            let msg;
+            const ultimoBot = [...(conv.historial || [])].reverse().find(h => h.rol === 'bot');
+            let contexto;
             if (esN8n) {
-                msg = `Oye, solo para contarte — el pack de n8n son ${precio} de por vida, sin mensualidades. ¿Cuántas horas semanales te está tomando lo que quieres automatizar? 💡`;
+                contexto = `El cliente vio el pack de n8n (${precio} de por vida). Último mensaje del bot: "${ultimoBot?.texto || ''}". Envía un mensaje recordando que son automatizaciones listas para usar, sin programar, y menciona el precio. Pregunta cuánto tiempo le toma el proceso que quiere automatizar.`;
             } else if (esEmula) {
-                msg = `¿Llegaste a ver el catálogo de juegos? Son +16.000 títulos por ${precio} único — nada más que pagar nunca 🎮 ¿Tienes PC, celu o tablet?`;
+                contexto = `El cliente vio EmulaConsolas (${precio} de por vida, +16.000 juegos). Último mensaje del bot: "${ultimoBot?.texto || ''}". Recuérdale el catálogo de juegos y pregunta si tiene PC, celu o tablet para darle más info.`;
             } else {
-                msg = `Oye, quería confirmarte que el pack CapCut son ${precio} de por vida — acceso permanente a los 3 cursos. ¿Cuál era tu duda principal? 🎬`;
+                contexto = `El cliente vio el pack CapCut (${precio} de por vida). Último mensaje del bot: "${ultimoBot?.texto || ''}". Recuérdale que son ${precio} de por vida, sin mensualidades. Pregunta cuál es su duda principal o para qué plataforma edita (TikTok/Instagram/YouTube).`;
             }
+            const msg = await generarFollowupIA(conv, producto, contexto) ||
+                (esN8n ? `Oye, ¿cuántas horas semanales te toma el proceso que quieres automatizar? El pack son ${precio} de por vida 💡` :
+                 esEmula ? `¿Tienes PC, celular o tablet? Así te digo cómo instalarlo. Son ${precio} únicos, sin más pagos 🎮` :
+                 `¿Cuál es tu duda principal del pack CapCut? Son ${precio} de por vida — sin mensualidades 🎬`);
             await enviarTexto(conv.numero_wa, msg);
             await guardarHistorial(conv, 'bot', msg);
             await conv.update({ notas: { ...notas, seg_interes_2: ahora } });
