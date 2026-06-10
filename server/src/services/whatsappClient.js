@@ -269,11 +269,19 @@ async function iniciar() {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
+        // Log mensajes no-notify para diagnóstico de CTWA/anuncios perdidos
+        if (type !== 'notify') {
+            const externos = messages.filter(m => !m.key.fromMe && m.key.remoteJid && !m.key.remoteJid.includes('@g.us') && m.key.remoteJid !== 'status@broadcast');
+            if (externos.length > 0) {
+                console.log(`📩 [${type}] ${externos.length} msg(s) de usuario ignorados:`, externos.map(m => m.key.remoteJid).join(', '));
+            }
+            return;
+        }
         for (const msg of messages) {
             if (msg.key.fromMe) continue;
             const jid = msg.key.remoteJid || '';
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
+            console.log(`📨 Mensaje entrante: ${jid} tipo=${Object.keys(msg.message || {}).join('|') || 'vacío'}`);
 
             // Ignorar mensajes ya procesados (Baileys a veces emite duplicados)
             const msgId = msg.key.id;
