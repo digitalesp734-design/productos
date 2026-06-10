@@ -310,9 +310,11 @@ function preguntaPersuasiva(nombreProducto) {
 }
 
 async function enviarDetalleProducto(numero, producto) {
-    const audio   = getAudioProducto(producto.nombre);
-    const esN8n   = /n8n|agente/i.test(producto.nombre);
-    const esEmula = /emula/i.test(producto.nombre);
+    const audio    = getAudioProducto(producto.nombre);
+    const esN8n    = /n8n|agente/i.test(producto.nombre);
+    const esEmula  = /emula/i.test(producto.nombre);
+    const esCombo  = /combo/i.test(producto.nombre);
+    const esPremium = /premium/i.test(producto.nombre);
 
     // Emuladora: 1 video con caption + 1 pregunta (2 mensajes en total)
     if (esEmula) {
@@ -333,13 +335,17 @@ async function enviarDetalleProducto(numero, producto) {
     }
 
     if (audio) {
-        // 1. Audio directamente — sin intro separado
         await enviarAudio(numero, audio);
         await new Promise(r => setTimeout(r, 1000));
 
-        // 2. Un solo texto: precio + link (si n8n) + pregunta
         let texto = `💰 *${fmt(producto.precio)}* de por vida — sin mensualidades`;
-        if (esN8n) texto += `\n\n📋 Los 350 agentes:\n${LINK_AGENTES_N8N}`;
+        if (esCombo) {
+            texto += `\n\n🔥 *Combo completo:* CapCut PRO + Edición Profesional + Photoshop PRO + pack de vectores, efectos y plantillas. Todo incluido, ahorras *${fmt(15000)}* vs comprarlo por separado.`;
+        } else if (esPremium && esN8n) {
+            texto += `\n\n⭐ *Pack completo:* 350 agentes listos + curso n8n desde cero hasta avanzado + te instalamos n8n en la nube GRATIS ☁️\n📋 Los 350 agentes:\n${LINK_AGENTES_N8N}`;
+        } else if (esN8n) {
+            texto += `\n\n📋 Los 350 agentes:\n${LINK_AGENTES_N8N}`;
+        }
         texto += `\n\n${preguntaPersuasiva(producto.nombre)}`;
         await enviarTexto(numero, texto);
     } else {
@@ -450,9 +456,10 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     // Sticker / saludo automático de anuncio Meta — mostrar menú directo
     if (!msg) {
         if (conv.estado === 'nuevo') {
+            const productosMenu = await getProductos();
             await guardarHistorial(conv, 'user', '[sticker/otro]');
             const bienvenida = `Hola 👋 ¿Cuál de estos te interesa?`;
-            const menu = menuTexto(productos);
+            const menu = menuTexto(productosMenu);
             await enviarTexto(numero, bienvenida);
             await new Promise(r => setTimeout(r, 600));
             await enviarTexto(numero, menu);
@@ -477,8 +484,19 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     // ── Mención directa de producto → audio/video inmediato ─────────────────
     if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
-        const productoDetectado = detectarProductoMencionado(msgLower, productos);
+        let productoDetectado = detectarProductoMencionado(msgLower, productos);
         if (productoDetectado) {
+            // Upsell automático: redirigir al producto de mayor valor si el cliente no pide explícitamente el básico
+            const quiereBasico = /b[aá]sico|solo el curso|solo los agentes|economico|econ[oó]mico|barato|m[aá]s barato|m[aá]s econ/i.test(msgLower);
+            if (!quiereBasico) {
+                if (/capcut/i.test(productoDetectado.nombre) && !/combo/i.test(productoDetectado.nombre)) {
+                    const combo = productos.find(p => /combo/i.test(p.nombre));
+                    if (combo) productoDetectado = combo;
+                } else if (/n8n|agente/i.test(productoDetectado.nombre) && !/premium/i.test(productoDetectado.nombre)) {
+                    const premium = productos.find(p => /premium/i.test(p.nombre) && /n8n/i.test(p.nombre));
+                    if (premium) productoDetectado = premium;
+                }
+            }
             // Re-leer DB para evitar race condition con mensajes concurrentes
             const convFresh = await Conversacion.findOne({ where: { numero_wa: numero } });
             const CINCO_MIN = 5 * 60 * 1000;
