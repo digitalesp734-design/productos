@@ -447,14 +447,17 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
-    // Sticker u otro tipo no reconocido — responder con saludo
+    // Sticker / saludo automático de anuncio Meta — mostrar menú directo
     if (!msg) {
         if (conv.estado === 'nuevo') {
-            const r = '¡Hola! 👋 ¿En qué te puedo ayudar hoy?';
-            await enviarTexto(numero, r);
             await guardarHistorial(conv, 'user', '[sticker/otro]');
-            await guardarHistorial(conv, 'bot', r);
-            await conv.update({ estado: 'viendo_producto' });
+            const bienvenida = `Hola 👋 ¿Cuál de estos te interesa?`;
+            const menu = menuTexto(productos);
+            await enviarTexto(numero, bienvenida);
+            await new Promise(r => setTimeout(r, 600));
+            await enviarTexto(numero, menu);
+            await guardarHistorial(conv, 'bot', `${bienvenida}\n${menu}`);
+            await conv.update({ estado: 'menu' });
         }
         return;
     }

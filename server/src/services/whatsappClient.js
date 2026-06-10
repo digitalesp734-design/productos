@@ -258,6 +258,12 @@ async function iniciar() {
                     }
                     msgQueue.length = 0;
                 }
+                // Disparar seguimientos al reconectar — recupera leads que pudieron perderse durante el deploy
+                try {
+                    const { ejecutarSeguimientos } = require('./followUpService');
+                    await ejecutarSeguimientos();
+                    console.log('✅ Seguimientos post-reconexión ejecutados');
+                } catch (e) { console.error('Error seguimientos post-reconexión:', e.message); }
             }, 30000);
         }
     });
@@ -315,14 +321,33 @@ async function iniciar() {
                     || m.listResponseMessage?.title
                     || m.templateButtonReplyMessage?.selectedDisplayText
                     || m.interactiveResponseMessage?.body?.text
+                    || m.interactiveMessage?.body?.text
                     || m.nativeFlowResponseMessage?.name
+                    || m.ephemeralMessage?.message?.conversation
+                    || m.ephemeralMessage?.message?.extendedTextMessage?.text
+                    || m.viewOnceMessage?.message?.conversation
                     || '';
-                // Algunos mensajes de anuncio traen el texto en contextInfo (saludo automático)
+
+                // Mensajes de anuncio Meta (CTWA - Click to WhatsApp Ads)
+                // Formato 1: extendedTextMessage con contextInfo del anuncio
+                if (!texto && m.extendedTextMessage) {
+                    texto = m.extendedTextMessage.text || '';
+                }
+                // Formato 2: contextInfo con texto del botón del anuncio
                 if (!texto) {
-                    const ctx = m.extendedTextMessage?.contextInfo || m.conversation?.contextInfo;
-                    if (ctx?.forwardingScore >= 0 && m.extendedTextMessage?.text) {
-                        texto = m.extendedTextMessage.text;
+                    const ctx = m.extendedTextMessage?.contextInfo
+                        || m.interactiveResponseMessage?.contextInfo
+                        || m.buttonsResponseMessage?.contextInfo;
+                    if (ctx) {
+                        texto = ctx.forwardedNewsletterMessageInfo?.newsletterName
+                            || ctx.quotedMessage?.conversation
+                            || ctx.quotedMessage?.extendedTextMessage?.text
+                            || '';
                     }
+                }
+                // Log para diagnóstico de mensajes no parseados (solo en desarrollo o si texto vacío)
+                if (!texto && process.env.NODE_ENV !== 'production') {
+                    console.log('🔍 Mensaje sin texto parseado:', JSON.stringify(Object.keys(m)));
                 }
                 let mediaBuffer = null;
 
