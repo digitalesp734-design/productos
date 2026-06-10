@@ -88,6 +88,7 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
                 const prod     = conv.producto?.nombre || '';
                 const esN8n    = /n8n|agente/i.test(prod);
                 const esCapcut = /capcut/i.test(prod);
+                const esEmula  = /emula/i.test(prod);
 
                 // Resetear todos los flags de seguimiento
                 const notasLimpias = Object.fromEntries(
@@ -124,6 +125,8 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
                         msg = `Hola ${nombre} 👋 ¿Pudiste revisar el pack de n8n? Si tienes alguna pregunta de cómo funciona, aquí estoy 😊`;
                     } else if (esCapcut) {
                         msg = `Hola ${nombre} 👋 ¿Le diste ojo al curso de CapCut? Cualquier duda me cuentas 🎬`;
+                    } else if (esEmula) {
+                        msg = `Hola ${nombre} 👋 ¿Pudiste ver el catálogo de juegos? Si tienes alguna duda de compatibilidad o instalación, cuéntame 🎮`;
                     }
                 }
 
@@ -281,6 +284,49 @@ router.post('/subir-video', auth, async (req, res) => {
     } catch (e) {
         res.status(500).json({ ok: false, msg: e.message });
     }
+});
+
+// Anunciar nuevo precio de EmulaConsolas a todos los que preguntaron
+router.post('/broadcast-precio-emula', auth, async (req, res) => {
+    res.json({ ok: true, msg: 'Broadcast precio emula iniciando...' });
+    setTimeout(async () => {
+        try {
+            const { Op } = require('sequelize');
+            const { enviarTexto } = require('../services/whatsappService');
+            const delay = ms => new Promise(r => setTimeout(r, ms));
+
+            const emula = await Producto.findOne({ where: { nombre: { [Op.like]: '%mula%' } } });
+            if (!emula) { console.log('[broadcast-precio-emula] Producto no encontrado'); return; }
+
+            // Buscar por producto_id directo + filtrar historial en JS
+            const todas = await Conversacion.findAll({
+                where: {
+                    updatedAt: { [Op.gt]: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000) },
+                    estado: { [Op.ne]: 'completado' }
+                }
+            });
+
+            const convs = todas.filter(conv =>
+                conv.producto_id === emula.id ||
+                (conv.historial || []).some(h => /emula|juego|consola|playstation|xbox|nintendo|emulador/i.test(h.texto || ''))
+            );
+
+            const fmt = p => `$${parseInt(p).toLocaleString('es-CO')}`;
+            let enviados = 0;
+            for (const conv of convs) {
+                const nombre = (conv.nombre_cliente || '').split(' ')[0] || 'hola';
+                const msg = `Hola ${nombre} 👋 Te aviso que bajamos el precio del pack de consolas a *${fmt(emula.precio)}* de por vida 🎉\n\n+16.000 juegos: PS1, PS2, PS3, Xbox, Nintendo, GBA y más. ¿Lo tomamos hoy? 🎮`;
+                try {
+                    await enviarTexto(conv.numero_wa, msg);
+                    const h = [...(conv.historial || []), { rol: 'bot', texto: msg, ts: Date.now() }].slice(-30);
+                    await conv.update({ historial: h, ultimo_mensaje: msg.slice(0, 200) });
+                    enviados++;
+                    await delay(3000);
+                } catch (e) { console.error('[broadcast-precio-emula] Error a', conv.numero_wa, e.message); }
+            }
+            console.log(`[broadcast-precio-emula] ${enviados} mensajes enviados`);
+        } catch (e) { console.error('[broadcast-precio-emula] Error general:', e.message); }
+    }, 300);
 });
 
 // Limpiar conversaciones duplicadas sin @ en numero_wa

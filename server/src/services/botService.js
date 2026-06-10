@@ -352,54 +352,44 @@ function preguntaPersuasiva(nombreProducto) {
 }
 
 async function enviarDetalleProducto(numero, producto) {
-    const audio    = getAudioProducto(producto.nombre);
-    const esN8n    = /n8n|agente/i.test(producto.nombre);
-    const esEmula  = /emula/i.test(producto.nombre);
+    const audio   = getAudioProducto(producto.nombre);
+    const esN8n   = /n8n|agente/i.test(producto.nombre);
+    const esEmula = /emula/i.test(producto.nombre);
 
-    // Emuladora: enviar video catálogo
+    // Emuladora: 1 video con caption + 1 pregunta (2 mensajes en total)
     if (esEmula) {
-        const intro = `🎮 *EmulaConsolas* — ${fmt(producto.precio)} pago único\n\n+16.000 juegos de 32 consolas. Mira el catálogo 👇`;
-        await enviarTexto(numero, intro);
-        await new Promise(r => setTimeout(r, 800));
         const videoPath = fs.existsSync(VIDEO_EMULADORA) ? VIDEO_EMULADORA
             : fs.existsSync(VIDEO_EMULADORA_FALLBACK) ? VIDEO_EMULADORA_FALLBACK : null;
         const videoBuffer = videoPath ? fs.readFileSync(videoPath) : null;
+        const caption = `🎮 *EmulaConsolas* — ${fmt(producto.precio)} de por vida\n+16.000 juegos: PS1, PS2, PS3, Xbox, Nintendo, GBA y más 🕹️`;
         if (videoBuffer) {
-            await enviarVideo(numero, videoBuffer);
+            await enviarVideo(numero, videoBuffer, caption);
         } else if (process.env.VIDEO_EMULADORA_URL) {
-            await enviarVideo(numero, process.env.VIDEO_EMULADORA_URL);
+            await enviarVideo(numero, process.env.VIDEO_EMULADORA_URL, caption);
+        } else {
+            await enviarTexto(numero, caption);
         }
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1000));
         await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
         return;
     }
 
     if (audio) {
-        // 1. Intro corta
-        const intro = `🔥 *${producto.nombre}* — ${fmt(producto.precio)} pago único\n\nEscucha los detalles 👇`;
-        await enviarTexto(numero, intro);
-        await new Promise(r => setTimeout(r, 800));
-
-        // 2. Audio
+        // 1. Audio directamente — sin intro separado
         await enviarAudio(numero, audio);
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1000));
 
-        // 3. Link agentes si es n8n
-        if (esN8n) {
-            await enviarTexto(numero, `📋 Lista completa de los 350 agentes:\n${LINK_AGENTES_N8N}`);
-            await new Promise(r => setTimeout(r, 700));
-        }
-
-        // 4. Pregunta persuasiva — no pide email todavía, primero engancha
-        await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
+        // 2. Un solo texto: precio + link (si n8n) + pregunta
+        let texto = `💰 *${fmt(producto.precio)}* de por vida — sin mensualidades`;
+        if (esN8n) texto += `\n\n📋 Los 350 agentes:\n${LINK_AGENTES_N8N}`;
+        texto += `\n\n${preguntaPersuasiva(producto.nombre)}`;
+        await enviarTexto(numero, texto);
     } else {
-        const msg = `🔥 *${producto.nombre}*\n💰 ${fmt(producto.precio)} — pago único de por vida\n\n${(producto.descripcion || '').slice(0, 120)}`;
+        // Sin audio: descripción + pregunta en 2 mensajes
+        const desc = (producto.descripcion || '').slice(0, 100);
+        const msg = `🔥 *${producto.nombre}* — ${fmt(producto.precio)} de por vida${desc ? '\n\n' + desc : ''}`;
         await enviarTexto(numero, msg);
         await new Promise(r => setTimeout(r, 600));
-        if (esN8n) {
-            await enviarTexto(numero, `📋 Lista de los 350 agentes:\n${LINK_AGENTES_N8N}`);
-            await new Promise(r => setTimeout(r, 500));
-        }
         await enviarTexto(numero, preguntaPersuasiva(producto.nombre));
     }
 }
@@ -537,10 +527,9 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
             );
             if (yaEnviado || yaViendo) {
                 const iaRespuesta = await respuestaIA(msg, convFresh, productos);
-                if (iaRespuesta) {
-                    await enviarTexto(numero, iaRespuesta);
-                    await guardarHistorial(convFresh, 'bot', iaRespuesta);
-                }
+                const respuesta = iaRespuesta || preguntaPersuasiva(productoDetectado.nombre);
+                await enviarTexto(numero, respuesta);
+                await guardarHistorial(convFresh, 'bot', respuesta);
                 return;
             }
             // Guardar en DB ANTES de enviar (previene race condition: 2do msg llega durante el envío del video)
