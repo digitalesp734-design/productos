@@ -269,15 +269,22 @@ async function iniciar() {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        // Log mensajes no-notify para diagnóstico de CTWA/anuncios perdidos
-        if (type !== 'notify') {
-            const externos = messages.filter(m => !m.key.fromMe && m.key.remoteJid && !m.key.remoteJid.includes('@g.us') && m.key.remoteJid !== 'status@broadcast');
-            if (externos.length > 0) {
-                console.log(`📩 [${type}] ${externos.length} msg(s) de usuario ignorados:`, externos.map(m => m.key.remoteJid).join(', '));
-            }
-            return;
-        }
-        for (const msg of messages) {
+        // Procesar 'notify' (mensajes nuevos) y 'append' recientes (CTWA de anuncios Meta)
+        // 'append' = mensajes sincronizados; solo procesar si son muy recientes (< 3 min) para no re-procesar historial viejo
+        const ahora = Date.now();
+        const procesables = type === 'notify' ? messages : messages.filter(m => {
+            if (m.key.fromMe) return false;
+            const jid = m.key.remoteJid || '';
+            if (jid.includes('@g.us') || jid === 'status@broadcast') return false;
+            // Solo mensajes de los últimos 3 minutos
+            const msgTs = (m.messageTimestamp || 0) * 1000;
+            const reciente = (ahora - msgTs) < 3 * 60 * 1000;
+            if (reciente) console.log(`📩 [${type}] CTWA reciente procesado: ${jid}`);
+            else console.log(`📩 [${type}] histórico ignorado: ${jid}`);
+            return reciente;
+        });
+        if (procesables.length === 0) return;
+        for (const msg of procesables) {
             if (msg.key.fromMe) continue;
             const jid = msg.key.remoteJid || '';
             if (jid.includes('@g.us') || jid === 'status@broadcast') continue;
