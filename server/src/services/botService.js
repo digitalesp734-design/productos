@@ -501,8 +501,11 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
             const convFresh = await Conversacion.findOne({ where: { numero_wa: numero } });
             const CINCO_MIN = 5 * 60 * 1000;
             const yaViendo  = convFresh.estado === 'viendo_producto' && convFresh.producto_id === productoDetectado.id;
+            // Solo el marcador específico del detalle (🔥 ...) evita falso positivo con el menú,
+            // que también contiene los nombres de los productos
+            const markerDetalle = `🔥 ${productoDetectado.nombre}`;
             const yaEnviado = (convFresh.historial || []).slice(-6).some(h =>
-                h.rol === 'bot' && h.texto?.includes(productoDetectado.nombre) && (Date.now() - (h.ts || 0)) < CINCO_MIN
+                h.rol === 'bot' && h.texto?.startsWith(markerDetalle) && (Date.now() - (h.ts || 0)) < CINCO_MIN
             );
             if (yaEnviado || yaViendo) {
                 const iaRespuesta = await respuestaIA(msg, convFresh, productos);
