@@ -124,12 +124,12 @@ function validarComprobante(a, precioEsperado) {
         process.env.NEQUI_NUMERO, process.env.DAVIPLATA_NUMERO,
         process.env.LLAVE_NUMERO, process.env.PAGO_NOMBRE
     ].filter(Boolean).map(c => c.toLowerCase().replace(/\s+/g, ''));
+    // Solo bloquea si SE LEYÓ la cuenta y NO coincide (señal de pago a otra persona = fraude).
+    // Si no se pudo leer la cuenta, no se bloquea por eso (Vision a veces no la lee) — el monto manda.
     if (a.destinatario) {
         const dest = a.destinatario.toLowerCase().replace(/\s+/g, '');
         const coincide = cuentas.some(c => c && (dest.includes(c) || c.includes(dest)));
         if (!coincide) razones.push(`cuenta destino "${a.destinatario}" no coincide con las del negocio`);
-    } else {
-        razones.push('no se pudo leer la cuenta destino');
     }
     return { aprobado: razones.length === 0, razones };
 }
