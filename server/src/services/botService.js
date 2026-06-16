@@ -73,29 +73,65 @@ async function transcribirAudio(buffer) {
     } catch (e) { console.error('Whisper error:', e.message); return null; }
 }
 
-// ── Detectar comprobante con Claude Vision ────────────────────────────────────
-async function esComprobante(buffer) {
-    if (!buffer) return false;
+// ── Analizar comprobante con Claude Vision — extrae monto, destino, fecha ──────
+// Devuelve { esComprobante, monto, destinatario, fecha, exitoso, sospechoso } o { error:true }
+async function analizarComprobante(buffer) {
+    if (!buffer) return { esComprobante: false };
     try {
         const client = getAnthropic();
         const resp   = await client.messages.create({
             model:      'claude-haiku-4-5-20251001',
-            max_tokens: 10,
+            max_tokens: 350,
             messages:   [{
                 role:    'user',
                 content: [
                     { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buffer.toString('base64') } },
-                    { type: 'text',  text: '¿Es esta imagen un comprobante de pago (Nequi, Daviplata, transferencia, consignación)? Responde solo SI o NO.' }
+                    { type: 'text',  text: `Analiza esta imagen. ¿Es un comprobante de pago/transferencia colombiano (Nequi, Daviplata, Bancolombia, Bre-b, consignación)?
+Extrae los datos y responde SOLO con un JSON válido, sin texto extra:
+{
+  "esComprobante": true o false,
+  "monto": el valor pagado como número entero sin puntos ni símbolos (ej: 20000), o null si no se ve,
+  "destinatario": nombre o número/cuenta de QUIEN RECIBE el dinero (texto), o null si no se ve,
+  "fecha": el texto de la fecha/hora que aparezca, o null,
+  "exitoso": true si dice exitoso/aprobado/completado/enviado, false si dice fallido/rechazado/pendiente,
+  "sospechoso": true SOLO si la imagen parece editada, montada o falsa (fuentes raras, recortes, inconsistencias)
+}` }
                 ]
             }]
         });
-        const r = (resp.content[0]?.text || '').toUpperCase().trim();
-        return r.startsWith('SI') || r.startsWith('SÍ');
+        const txt  = resp.content[0]?.text || '';
+        const json = JSON.parse((txt.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+        return json;
     } catch (e) {
         console.error('Vision error:', e.message);
-        try { await notificarTelegram('⚠️ Vision falló — revisar comprobante manualmente'); } catch {}
-        return true;
+        return { error: true };
     }
+}
+
+// Valida que el comprobante analizado coincida con el pago esperado.
+// Devuelve { aprobado, razones[] }. Estricto: cualquier duda → no aprobado (escala a revisión).
+function validarComprobante(a, precioEsperado) {
+    const razones = [];
+    if (a.error)               return { aprobado: false, razones: ['no se pudo leer la imagen (Vision falló)'] };
+    if (a.esComprobante === false) return { aprobado: false, razones: ['la imagen no parece un comprobante de pago'] };
+    if (a.exitoso === false)   razones.push('el pago aparece como fallido/pendiente');
+    if (a.sospechoso === true) razones.push('la imagen parece editada o sospechosa');
+    if (a.monto == null)       razones.push('no se pudo leer el monto');
+    else if (a.monto < precioEsperado) razones.push(`monto pagado $${a.monto.toLocaleString('es-CO')} menor al precio $${precioEsperado.toLocaleString('es-CO')}`);
+
+    // Validar destinatario contra las cuentas del negocio (si se pudo leer)
+    const cuentas = [
+        process.env.NEQUI_NUMERO, process.env.DAVIPLATA_NUMERO,
+        process.env.LLAVE_NUMERO, process.env.PAGO_NOMBRE
+    ].filter(Boolean).map(c => c.toLowerCase().replace(/\s+/g, ''));
+    if (a.destinatario) {
+        const dest = a.destinatario.toLowerCase().replace(/\s+/g, '');
+        const coincide = cuentas.some(c => c && (dest.includes(c) || c.includes(dest)));
+        if (!coincide) razones.push(`cuenta destino "${a.destinatario}" no coincide con las del negocio`);
+    } else {
+        razones.push('no se pudo leer la cuenta destino');
+    }
+    return { aprobado: razones.length === 0, razones };
 }
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
@@ -321,6 +357,42 @@ async function respuestaIA(msg, conv, productos) {
     return claudeChat(sistema, historial, msg);
 }
 
+// ── Soporte / atención al cliente post-venta ──────────────────────────────────
+function buildSoportePrompt(producto, productos) {
+    const infoProducto = producto ? `
+El cliente compró: *${producto.nombre}*.
+Esta es la información, accesos y tutoriales de ese producto. Compártele los links EXACTOS cuando apliquen, copiados tal cual:
+${producto.link_drive}
+` : 'Aún no sabes qué producto compró. Pregúntale cuál para ayudarlo mejor.';
+
+    const catalogo = productos.map(p => `- ${p.nombre} (${fmt(p.precio)})`).join('\n');
+
+    return `Eres Cristian, del equipo de soporte de AI Company por WhatsApp. Colombiano, cálido, paciente y resolutivo. Atiendes a un cliente que YA COMPRÓ y necesita ayuda. Tu meta: que resuelva su problema y quede contento.
+
+${infoProducto}
+
+Cómo das soporte:
+— Máximo 3-4 líneas. Lenguaje sencillo, paso a paso, sin tecnicismos.
+— Entiende bien el problema con UNA pregunta si hace falta (¿qué dispositivo usas?, ¿qué error te aparece?, ¿en qué paso vas?).
+— Da la solución concreta. Si hay un tutorial o video para eso, mándale el link EXACTO de la información de arriba.
+— Si no encuentra el acceso que compró, reenvíale los links de arriba.
+— Sé MUY paciente aunque esté molesto. Discúlpate si tuvo un inconveniente, nunca lo culpes.
+— NUNCA inventes pasos, links ni contraseñas que no estén en la info de arriba.
+— Si quiere comprar otro producto, con gusto. Catálogo: ${catalogo}
+— Si tras intentarlo no se resuelve, o pide hablar con una persona, dile EXACTAMENTE: "Voy a pasar tu caso a un compañero del equipo para que te ayude personalmente, en un momentico te escribe 🙌".
+
+Eres una persona real (Cristian). Nunca digas que eres un bot, una IA o que esto es automático.`;
+}
+
+async function respuestaSoporte(msg, conv, producto, productos) {
+    const sistema   = buildSoportePrompt(producto, productos);
+    const historial = (conv.historial || []).slice(-20).map(h => ({
+        role:    h.rol === 'bot' ? 'assistant' : 'user',
+        content: h.texto
+    }));
+    return claudeChat(sistema, historial, msg);
+}
+
 // ── Guardar historial ─────────────────────────────────────────────────────────
 async function guardarHistorial(conv, rol, texto) {
     const historial = [...(conv.historial || []), { rol, texto, ts: Date.now() }].slice(-30);
@@ -454,14 +526,33 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
             const producto   = await Producto.findByPk(conv.producto_id);
             if (!producto) { await enviarTexto(numero, 'Escribe *menú* para reiniciar'); return; }
 
-            const confirmado = await esComprobante(mediaBuffer);
-            if (!confirmado) {
-                await enviarTexto(numero, 'No parece un comprobante 🤔 Envíame la captura del pago (Nequi, Daviplata, etc.)');
+            // Precio esperado (respeta oferta activa)
+            const precioEsperado = conv.notas?.precio_oferta || parseInt(producto.precio);
+
+            // Verificación robusta: lee monto, cuenta destino, fecha y señales de fraude
+            const analisis  = await analizarComprobante(mediaBuffer);
+
+            // No es comprobante del todo → pedir la captura correcta
+            if (analisis.esComprobante === false) {
+                await enviarTexto(numero, 'Mmm, esa imagen no parece el comprobante del pago 🤔 Mándame la captura de la transferencia (Nequi, Daviplata o Bre-b) y te activo el acceso de una ⚡');
+                await guardarHistorial(conv, 'user', '🖼️ [imagen: no es comprobante]');
                 return;
             }
 
-            // Registrar venta — respeta el precio de oferta si el cliente tenía uno activo
-            const montoVenta = conv.notas?.precio_oferta || producto.precio;
+            const validacion = validarComprobante(analisis, precioEsperado);
+
+            // Comprobante dudoso → NO entregar, escalar a Cristian por Telegram para revisión
+            if (!validacion.aprobado) {
+                await notificarTelegram(`🔎 *Comprobante PARA REVISAR — no entregado*\n👤 ${conv.nombre_cliente || numero}\n📱 ${numero}\n📦 ${producto.nombre}\n💰 Esperado: ${fmt(precioEsperado)}\n📧 ${conv.email_cliente || '—'}\n\n*Lectura del comprobante:*\n• Monto: ${analisis.monto != null ? fmt(analisis.monto) : 'no legible'}\n• Destino: ${analisis.destinatario || 'no legible'}\n• Fecha: ${analisis.fecha || 'no legible'}\n• Exitoso: ${analisis.exitoso}\n\n*Motivos:* ${validacion.razones.join('; ')}\n\n👉 Revisa el chat. Si el pago es válido, entrégale el acceso manualmente.`);
+                await conv.update({ estado: 'esperando_comprobante', notas: { ...(conv.notas || {}), comprobante_en_revision: Date.now() } });
+                await guardarHistorial(conv, 'user', `🖼️ [comprobante en revisión: ${validacion.razones.join(', ')}]`);
+                await enviarTexto(numero, 'Recibí tu comprobante 🙌 Lo estoy verificando, dame un momentico y te confirmo para enviarte el acceso ✅');
+                await guardarHistorial(conv, 'bot', 'Recibí tu comprobante, verificando para enviar el acceso.');
+                return;
+            }
+
+            // Aprobado: registrar venta — respeta el precio de oferta si el cliente tenía uno activo
+            const montoVenta = precioEsperado;
             const venta = await Venta.create({
                 numero_wa:       numero,
                 nombre_cliente:  conv.nombre_cliente || nombre,
@@ -482,7 +573,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
             });
             await conv.update({ estado: 'completado', producto_id: null, notas: { ...(conv.notas || {}), producto_comprado_id: producto.id, comprado_at: Date.now() } });
 
-            await notificarTelegramVenta(conv.nombre_cliente || numero, producto.nombre, producto.precio, conv.email_cliente);
+            await notificarTelegramVenta(conv.nombre_cliente || numero, producto.nombre, montoVenta, conv.email_cliente);
 
             const esN8n = /n8n|agente/i.test(producto.nombre);
             const respuesta = esN8n
@@ -552,6 +643,30 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         await enviarTexto(numero, respuesta);
         await guardarHistorial(conv, 'bot', respuesta);
         return;
+    }
+
+    // ── Soporte post-venta: el cliente YA compró ──────────────────────────────
+    // (Si quiere comprar OTRO producto, no entra acá y sigue al flujo de ventas)
+    const yaCompro = conv.notas?.producto_comprado_id;
+    if (yaCompro) {
+        const prodMencionado = detectarProductoMencionado(msgLower, productos);
+        const quiereComprarOtro = /comprar|quiero (el|otro|comprar)|me interesa otro|tienen otro|otro producto|ahora quiero|me das (el|info)|ll[eé]vame/i.test(msgLower)
+            || (prodMencionado && prodMencionado.id !== yaCompro); // menciona un producto DISTINTO al que compró
+        if (!quiereComprarOtro) {
+            const prodSoporte = await Producto.findByPk(yaCompro);
+            const pideHumano = /hablar con (alguien|una persona|un humano|asesor|soporte|cristian)|me atienda alguien|persona real|un humano|no me (funciona|sirve|ayuda) nada|llevo (rato|horas|d[ií]as)|sigo sin (poder|funcionar)|nada me funciona|ya intent[eé] (de )?todo/i.test(msgLower);
+            const intentos = (conv.notas?.soporte_intentos || 0) + 1;
+            const resp = await respuestaSoporte(msg, conv, prodSoporte, productos);
+            const respuesta = resp || 'Cuéntame bien qué problema tienes (qué dispositivo usas y qué te pasa) y te ayudo a resolverlo 🙌';
+            await conv.update({ notas: { ...(conv.notas || {}), soporte_intentos: intentos } });
+            await enviarTexto(numero, respuesta);
+            await guardarHistorial(conv, 'bot', respuesta);
+            // Escalar a humano: lo pide, lleva muchos intentos, o el bot ya dijo que pasa el caso
+            if (pideHumano || intentos >= 4 || /pasar tu caso|un compa[ñn]ero del equipo/i.test(respuesta)) {
+                await notificarTelegram(`🆘 *SOPORTE — cliente necesita ayuda humana*\n👤 ${conv.nombre_cliente || numero}\n📱 ${numero}\n📦 ${prodSoporte?.nombre || '—'}\n🔁 Intentos de soporte: ${intentos}\n\nÚltimo mensaje: "${msg}"\n\n👉 Entra al chat y ayúdalo personalmente.`);
+            }
+            return;
+        }
     }
 
     // ── Mención directa de producto → audio/video inmediato ─────────────────
