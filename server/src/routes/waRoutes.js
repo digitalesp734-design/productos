@@ -95,38 +95,41 @@ router.post('/recuperar-clientes', auth, async (req, res) => {
                     Object.entries(notas).filter(([k]) => !k.startsWith('seg_'))
                 );
 
+                const precio = conv.producto?.precio ? `$${parseInt(conv.producto.precio).toLocaleString('es-CO')}` : '';
                 let msg = null;
 
                 if (estado === 'esperando_comprobante') {
-                    msg = `Hola ${nombre} 👋 ¿Todo bien con el pago? Si tuviste algún problema o necesitas otro método de pago, cuéntame y lo resolvemos 😊`;
+                    // Ya dieron correo y conocen el precio → empujar al pago con valor + urgencia + cierre
+                    if (esN8n) {
+                        msg = `Hola ${nombre} 👋 Te dejé apartado el acceso al pack de n8n — 350 agentes listos para automatizar tu negocio${precio ? ` por ${precio}` : ''}, pago único de por vida. Apenas hagas la transferencia me mandas la captura y en segundos lo tienes todo. ¿Lo dejamos hecho hoy? 🚀`;
+                    } else if (esEmula) {
+                        msg = `Hola ${nombre} 👋 Te tengo listo el acceso a los +16.000 juegos${precio ? ` por ${precio}` : ''} — pago único, sin mensualidades. Haces la transferencia, me mandas la captura y esta misma tarde estás jugando. ¿Le damos hoy? 🎮`;
+                    } else if (esCapcut) {
+                        msg = `Hola ${nombre} 👋 Te dejé apartado el curso de CapCut PRO${precio ? ` por ${precio}` : ''} — de por vida, sin mensualidades. Apenas pagues me mandas la captura y arrancas hoy mismo. ¿Lo cerramos? 🎬`;
+                    } else {
+                        msg = `Hola ${nombre} 👋 Te tengo apartado tu acceso${precio ? ` por ${precio}` : ''}, pago único de por vida. Haces la transferencia, me mandas la captura y en segundos lo tienes. ¿Le damos hoy? 🚀`;
+                    }
 
                 } else if (estado === 'esperando_email') {
-                    // Caso especial: alguien que dijo que no pudo pasar el correo
-                    const historial = conv.historial || [];
-                    const dijoCorroeProblema = historial.some(h => h.rol === 'user' && /no he podido|no pude|correo/i.test(h.texto));
-                    if (dijoCorroeProblema) {
-                        msg = `Hola ${nombre} 😊 tranquilo, escríbeme tu correo aquí directamente y te envío el acceso de una ✅`;
-                    } else if (esN8n) {
-                        const ops = [
-                            `Hola ${nombre} 👋 ¿Hay algo del pack de n8n que no quedó claro? Cuéntame 🤖`,
-                            `Oye ${nombre}, ¿para qué proceso lo estabas pensando? Así te digo cuál agente te sirve más 💡`
-                        ];
-                        msg = ops[Math.floor(Math.random() * ops.length)];
+                    // Falta el correo → pedirlo con cierre asumido + recordar valor
+                    if (esN8n) {
+                        msg = `Hola ${nombre} 👋 Quedamos en uno y faltó lo último: pásame tu correo y te dejo listo el acceso a los 350 agentes de n8n${precio ? ` (${precio}, de por vida)` : ''}. Cientos ya están automatizando con esto. ¿Cuál es tu correo? ✅`;
+                    } else if (esEmula) {
+                        msg = `Hola ${nombre} 👋 Solo falta tu correo para dejarte listos los +16.000 juegos${precio ? ` (${precio}, una sola vez)` : ''}. Me lo pasas y arrancamos hoy mismo 🎮 ¿Cuál es?`;
                     } else if (esCapcut) {
-                        const ops = [
-                            `Hola ${nombre} 👋 ¿Le diste ojo al curso de CapCut? Si tienes alguna duda cuéntame 🎬`,
-                            `Oye ${nombre}, ¿qué tipo de contenido quieres crear? Así te digo qué parte del curso te ayuda más 📱`
-                        ];
-                        msg = ops[Math.floor(Math.random() * ops.length)];
+                        msg = `Hola ${nombre} 👋 Solo falta tu correo para activarte el curso de CapCut PRO${precio ? ` (${precio}, de por vida)` : ''}. Me lo pasas y te lo dejo listo de una ✅ ¿Cuál es?`;
+                    } else {
+                        msg = `Hola ${nombre} 👋 Solo falta tu correo para dejarte todo listo${precio ? ` (${precio}, pago único de por vida)` : ''}. ¿Cuál es? ✅`;
                     }
 
                 } else if (['viendo_producto','menu'].includes(estado) && prod) {
+                    // Vio el producto pero no avanzó → re-enganche con valor + prueba social + cierre suave
                     if (esN8n) {
-                        msg = `Hola ${nombre} 👋 ¿Pudiste revisar el pack de n8n? Si tienes alguna pregunta de cómo funciona, aquí estoy 😊`;
+                        msg = `Hola ${nombre} 👋 Quedé pendiente de ti con el pack de n8n. 350 agentes para automatizar tu negocio${precio ? ` por ${precio}` : ''}, pago único — la mayoría arranca el mismo día. ¿Te dejo el acceso listo? 🤖`;
                     } else if (esCapcut) {
-                        msg = `Hola ${nombre} 👋 ¿Le diste ojo al curso de CapCut? Cualquier duda me cuentas 🎬`;
+                        msg = `Hola ${nombre} 👋 ¿Le seguimos al curso de CapCut PRO? Aprendes a editar como pro${precio ? ` por ${precio}` : ''}, de por vida. Cientos ya lo están usando. ¿Te lo activo? 🎬`;
                     } else if (esEmula) {
-                        msg = `Hola ${nombre} 👋 ¿Pudiste ver el catálogo de juegos? Si tienes alguna duda de compatibilidad o instalación, cuéntame 🎮`;
+                        msg = `Hola ${nombre} 👋 ¿Le entramos a los +16.000 juegos? PS1, PS2, PS3, Xbox, Nintendo y más${precio ? ` por ${precio}` : ''}, pago único de por vida. ¿Te dejo el acceso listo hoy? 🎮`;
                     }
                 }
 
