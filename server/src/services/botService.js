@@ -193,7 +193,7 @@ function getAudioProducto(nombreProducto) {
 }
 
 // ── Sistema prompt natural — suena como persona real, no como robot ────────────
-function buildSystemPrompt(productos, productoActual = null, intercambios = 0) {
+function buildSystemPrompt(productos, productoActual = null, intercambios = 0, precioOferta = null) {
     const nequi     = process.env.NEQUI_NUMERO     || '';
     const daviplata = process.env.DAVIPLATA_NUMERO || '';
     const llave     = process.env.LLAVE_NUMERO     || '';
@@ -262,7 +262,9 @@ ${productoActual
     : 'Aún no sabes qué busca el cliente. Haz UNA pregunta para descubrir qué necesita y guíalo al producto que le sirve.'}
 
 Pago: ${pago}
-
+${precioOferta ? `
+🔥 OFERTA ACTIVA PARA ESTE CLIENTE: tiene un precio especial de ${fmt(precioOferta)} (en vez de ${precio || 'el precio normal'}). Usa SIEMPRE ${fmt(precioOferta)} al hablar de precio y al cerrar. Es una oferta para que se decida hoy — recuérdaselo: "te dejé el precio especial de ${fmt(precioOferta)}, aprovéchalo hoy".
+` : ''}
 🚫 REGLAS QUE NUNCA PUEDES ROMPER (lo más importante):
 1. ERES CRISTIAN, UNA PERSONA REAL. Jamás digas que eres bot, IA o que esto es automatizado. Si preguntan "¿es automático?" / "¿eres un robot?": "No, soy Cristian 😄 a veces me demoro porque atiendo a varios, pero soy yo".
 2. TÚ NO ENTREGAS NADA POR TU CUENTA. El acceso lo entrega el sistema SOLO cuando el cliente manda la FOTO del pago. Nunca digas "ya te envié", "ya quedó enviado", "revisa tu correo". Eso es mentira y mata la confianza.
@@ -301,7 +303,8 @@ ${faseCierre}`;
 async function respuestaIA(msg, conv, productos) {
     const productoActual = conv.producto_id ? productos.find(p => p.id === conv.producto_id) || null : null;
     const intercambios = (conv.historial || []).filter(h => h.rol === 'user').length;
-    const sistema   = buildSystemPrompt(productos, productoActual, intercambios);
+    const precioOferta = conv.notas?.precio_oferta || null;
+    const sistema   = buildSystemPrompt(productos, productoActual, intercambios, precioOferta);
     const historial = (conv.historial || []).slice(-20).map(h => ({
         role:    h.rol === 'bot' ? 'assistant' : 'user',
         content: h.texto
@@ -448,13 +451,14 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
                 return;
             }
 
-            // Registrar venta
+            // Registrar venta — respeta el precio de oferta si el cliente tenía uno activo
+            const montoVenta = conv.notas?.precio_oferta || producto.precio;
             const venta = await Venta.create({
                 numero_wa:       numero,
                 nombre_cliente:  conv.nombre_cliente || nombre,
                 email_cliente:   conv.email_cliente  || null,
                 producto_id:     producto.id,
-                monto:           producto.precio,
+                monto:           montoVenta,
                 comprobante_url: 'comprobante_recibido',
                 estado:          'completada',
                 link_enviado:    producto.link_drive,
@@ -462,7 +466,7 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
             });
             await CajaMovimiento.create({
                 tipo:     'ingreso',
-                monto:    producto.precio,
+                monto:    montoVenta,
                 concepto: `Venta ${producto.nombre} — ${conv.nombre_cliente || numero}`,
                 venta_id: venta.id,
                 fecha:    new Date().toISOString().slice(0, 10)
@@ -627,8 +631,10 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     if (emailMatch && conv.producto_id && !conv.email_cliente) {
         const email    = emailMatch[0].toLowerCase();
         const producto = await Producto.findByPk(conv.producto_id);
+        // Si el cliente tiene una oferta activa, cobrar el precio de oferta (no el de lista)
+        const precioFinal = conv.notas?.precio_oferta || producto.precio;
         await conv.update({ estado: 'esperando_comprobante', email_cliente: email });
-        const respuesta = `Perfecto ✅ Anota los datos de pago:\n\n${infoPago(producto.precio)}\nEnvíame la captura cuando pagues y en segundos tienes el acceso ⚡`;
+        const respuesta = `Perfecto ✅ Anota los datos de pago:\n\n${infoPago(precioFinal)}\nEnvíame la captura cuando pagues y en segundos tienes el acceso ⚡`;
         await enviarTexto(numero, respuesta);
         await guardarHistorial(conv, 'bot', respuesta);
         return;

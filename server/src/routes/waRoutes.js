@@ -289,9 +289,11 @@ router.post('/subir-video', auth, async (req, res) => {
     }
 });
 
-// Anunciar nuevo precio de EmulaConsolas a todos los que preguntaron
+// Oferta de recuperación de EmulaConsolas: precio especial $15.000 (lista sigue en $20.000)
+// Marca notas.precio_oferta para que el bot cierre a ese precio. Body opcional: { precioOferta: 15000 }
 router.post('/broadcast-precio-emula', auth, async (req, res) => {
-    res.json({ ok: true, msg: 'Broadcast precio emula iniciando...' });
+    const precioOferta = parseInt(req.body?.precioOferta) || 15000;
+    res.json({ ok: true, msg: `Oferta emula ($${precioOferta}) iniciando...` });
     setTimeout(async () => {
         try {
             const { Op } = require('sequelize');
@@ -299,9 +301,9 @@ router.post('/broadcast-precio-emula', auth, async (req, res) => {
             const delay = ms => new Promise(r => setTimeout(r, ms));
 
             const emula = await Producto.findOne({ where: { nombre: { [Op.like]: '%mula%' } } });
-            if (!emula) { console.log('[broadcast-precio-emula] Producto no encontrado'); return; }
+            if (!emula) { console.log('[oferta-emula] Producto no encontrado'); return; }
 
-            // Buscar por producto_id directo + filtrar historial en JS
+            // Solo leads de emuladora que NO compraron
             const todas = await Conversacion.findAll({
                 where: {
                     updatedAt: { [Op.gt]: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000) },
@@ -318,17 +320,21 @@ router.post('/broadcast-precio-emula', auth, async (req, res) => {
             let enviados = 0;
             for (const conv of convs) {
                 const nombre = (conv.nombre_cliente || '').split(' ')[0] || 'hola';
-                const msg = `Hola ${nombre} 👋 Te aviso que bajamos el precio del pack de consolas a *${fmt(emula.precio)}* de por vida 🎉\n\n+16.000 juegos: PS1, PS2, PS3, Xbox, Nintendo, GBA y más. ¿Lo tomamos hoy? 🎮`;
+                const msg = `Hola ${nombre} 👋 Te tengo una oferta especial solo por hoy: el pack de +16.000 juegos (PS1, PS2, PS3, Xbox, Nintendo y más) te lo dejo en *${fmt(precioOferta)}* de por vida, en vez de ${fmt(emula.precio)} 🎮🔥\n\nPago único, sin mensualidades. ¿Te lo activo hoy? Mándame tu correo y listo ✅`;
                 try {
                     await enviarTexto(conv.numero_wa, msg);
+                    // Marcar precio de oferta + asegurar producto asignado para que el bot cierre a $15k
+                    const nuevasNotas = { ...(conv.notas || {}), precio_oferta: precioOferta, oferta_emula_enviada: Date.now() };
                     const h = [...(conv.historial || []), { rol: 'bot', texto: msg, ts: Date.now() }].slice(-30);
-                    await conv.update({ historial: h, ultimo_mensaje: msg.slice(0, 200) });
+                    const upd = { historial: h, ultimo_mensaje: msg.slice(0, 200), notas: nuevasNotas };
+                    if (!conv.producto_id) upd.producto_id = emula.id;
+                    await conv.update(upd);
                     enviados++;
                     await delay(3000);
-                } catch (e) { console.error('[broadcast-precio-emula] Error a', conv.numero_wa, e.message); }
+                } catch (e) { console.error('[oferta-emula] Error a', conv.numero_wa, e.message); }
             }
-            console.log(`[broadcast-precio-emula] ${enviados} mensajes enviados`);
-        } catch (e) { console.error('[broadcast-precio-emula] Error general:', e.message); }
+            console.log(`[oferta-emula] ${enviados} ofertas enviadas a $${precioOferta}`);
+        } catch (e) { console.error('[oferta-emula] Error general:', e.message); }
     }, 300);
 });
 
