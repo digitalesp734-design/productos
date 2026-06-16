@@ -145,14 +145,34 @@ function infoPago(monto) {
 const LINK_AGENTES_N8N = 'https://docs.google.com/spreadsheets/d/1RTXROtQqnyh4yC4n5U-DiKR9x0aWz_l8w1QmK1pr-ik/edit?usp=sharing';
 
 // ── Detectar producto mencionado en el mensaje ────────────────────────────────
-function detectarProductoMencionado(msgLower, productos) {
+// productoActual: si la conversación ya tiene un producto, las palabras genéricas
+// ("combo", "completo", "premium", "curso") NO deben saltar a otra familia de producto.
+function detectarProductoMencionado(msgLower, productos, productoActual = null) {
+    const familiaActual = productoActual
+        ? (/n8n|agente/i.test(productoActual.nombre) ? 'n8n'
+            : /capcut|combo/i.test(productoActual.nombre) ? 'capcut'
+            : /emula/i.test(productoActual.nombre) ? 'emula' : null)
+        : null;
+
+    // Si ya está en familia n8n y pide "completo/premium/combo/todo/curso" → n8n Premium (no el Combo CapCut)
+    if (familiaActual === 'n8n' && /premium|completo|combo|todo|con curso|el curso|hosting|nube/i.test(msgLower)) {
+        const prem = productos.find(p => /n8n/i.test(p.nombre) && /premium/i.test(p.nombre));
+        if (prem) return prem;
+    }
+    // Si ya está en familia capcut y pide "completo/combo/recursos" → Combo CapCut
+    if (familiaActual === 'capcut' && /combo|completo|recursos|vectores|plantillas|todo/i.test(msgLower)) {
+        const combo = productos.find(p => /combo/i.test(p.nombre));
+        if (combo) return combo;
+    }
+
     for (const p of productos) {
         const n = p.nombre.toLowerCase();
-        // Combo primero si lo mencionan explícitamente
-        if (n.includes('combo') && (msgLower.includes('combo') || msgLower.includes('recursos') || msgLower.includes('vectores'))) return p;
-        if (n.includes('capcut') && !n.includes('combo') && msgLower.includes('capcut')) return p;
-        if (n.includes('n8n') && n.includes('premium') && (msgLower.includes('premium') || msgLower.includes('curso') || msgLower.includes('hosting') || msgLower.includes('nube'))) return p;
+        // Mención explícita de n8n/agentes tiene prioridad sobre "combo" genérico
+        if (n.includes('n8n') && n.includes('premium') && (msgLower.includes('premium') || msgLower.includes('hosting') || msgLower.includes('nube'))) return p;
         if ((n.includes('n8n') || n.includes('agente')) && !n.includes('premium') && (msgLower.includes('n8n') || msgLower.includes('agente'))) return p;
+        // Combo CapCut: solo si hay contexto de video/edición, no para leads de n8n
+        if (n.includes('combo') && (msgLower.includes('combo') || msgLower.includes('recursos') || msgLower.includes('vectores')) && !/n8n|agente|automatiz/i.test(msgLower)) return p;
+        if (n.includes('capcut') && !n.includes('combo') && (msgLower.includes('capcut') || msgLower.includes('edici') || msgLower.includes('video'))) return p;
         if (n.includes('emula') && (msgLower.includes('emula') || msgLower.includes('juego') || msgLower.includes('consola') || msgLower.includes('playstation') || msgLower.includes('xbox') || msgLower.includes('nintendo'))) return p;
     }
     return null;
@@ -244,12 +264,18 @@ ${productoActual
 
 Pago: ${pago}
 
+REGLAS QUE NUNCA PUEDES ROMPER (son lo más importante):
+1. ERES CRISTIAN, UNA PERSONA REAL. Jamás digas que eres un bot, una IA, un asistente o que esto es automatizado. Si te preguntan "¿esto es automático?" o "¿eres un robot?" responde: "No, soy Cristian 😄 a veces me demoro porque estoy atendiendo a varios, pero soy yo".
+2. TÚ NO ENTREGAS NADA POR TU CUENTA. El acceso se entrega SOLO y AUTOMÁTICAMENTE cuando el cliente manda la FOTO/CAPTURA del pago. Nunca digas "ya te envié", "ya quedó enviado", "revisa tu correo", "ya te lo mandé" ni nada parecido. Eso es MENTIRA y destruye la confianza.
+3. Si el cliente dice que ya pagó, que ya está, que ya hizo la transferencia PERO no ha mandado la foto → pídele la captura con cariño: "Perfecto 🙌 mándame la captura o foto del pago y al toque te llega el acceso". NUNCA asumas que pagó sin ver la foto.
+4. NO PROMETAS demos, videos en vivo, pruebas ni ejemplos grabados — NO EXISTEN. Si piden ver el producto funcionando, no inventes que se lo vas a mandar. Responde con el valor real: "No tengo demo en video, pero llevamos cientos de compradores y todos quedan contentos. Es ${precio || '$20.000'} una sola vez, riesgo mínimo. ¿Le damos?".
+
 Cómo conversas:
 — Máximo 3 líneas por mensaje. Una sola pregunta al final.
 — Hablas como en WhatsApp con un conocido, no como un correo de ventas.
 — Nunca uses signos de exclamación en exceso — suena falso.
 — Si el cliente da su correo, responde inmediatamente solo con los datos de pago — nada más.
-— Si manda una imagen, asume que es comprobante de pago y procésalo.
+— No te quedes preguntando cosas eternamente. Después de 2 mensajes de calentar, PIDE EL CORREO y cierra. Tu meta es el pago, no charlar.
 — Si dice "qué vendes" o "qué tienes", describe brevemente y pregunta qué le interesa.
 — Nunca inventes precios, links ni garantías que no estén en este mensaje.
 
@@ -453,6 +479,23 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
         return;
     }
 
+    // Imagen que NO se pudo descargar (contacto @lid / problema de keys) — no perder la venta
+    if (tipo === 'image' && !mediaBuffer) {
+        await guardarHistorial(conv, 'user', '🖼️ [imagen no descargada]');
+        if (['esperando_comprobante', 'esperando_email'].includes(conv.estado) || conv.producto_id) {
+            const producto = conv.producto_id ? await Producto.findByPk(conv.producto_id) : null;
+            await notificarTelegram(`⚠️ *Comprobante por verificar manualmente*\n👤 ${conv.nombre_cliente || numero}\n📱 ${numero}\n📦 ${producto?.nombre || 'sin producto'}\n💰 ${producto ? fmt(producto.precio) : '—'}\n📧 ${conv.email_cliente || '—'}\n\nNo pude descargar la imagen automáticamente. Revisa el chat y entrega el acceso si el pago es válido.`);
+            const r = 'Recibí tu imagen 🙌 dame un momentico que verifico el pago y te activo el acceso. ¿Me confirmas tu correo para enviártelo?';
+            await enviarTexto(numero, r);
+            await guardarHistorial(conv, 'bot', r);
+        } else {
+            const r = 'Vi que me mandaste una imagen pero no me cargó bien 🤔 ¿Me cuentas qué producto te interesa y te ayudo?';
+            await enviarTexto(numero, r);
+            await guardarHistorial(conv, 'bot', r);
+        }
+        return;
+    }
+
     // Sticker / saludo automático de anuncio Meta — mostrar menú directo
     if (!msg) {
         if (conv.estado === 'nuevo') {
@@ -472,6 +515,15 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     const productos = await getProductos();
 
+    // ── Cliente molesto / pide que no le escriban → frenar followups y responder corto ──
+    if (/deja de (escribir|enviar|mandar)|no me escrib|no me interesa ya|no escrib|me dejas de|mensajes excesivos|para de escribir|no quiero m[aá]s mensaje/i.test(msgLower)) {
+        await conv.update({ notas: { ...(conv.notas || {}), no_followup: true } });
+        const r = 'Listo, no te escribo más 🙌 Si algún día lo necesitas, aquí estoy. ¡Un abrazo!';
+        await enviarTexto(numero, r);
+        await guardarHistorial(conv, 'bot', r);
+        return;
+    }
+
     // ── Comando menú ──────────────────────────────────────────────────────────
     const esComandoMenu = ['menú', 'menu', 'inicio', 'start'].includes(msgLower);
     if (esComandoMenu) {
@@ -484,10 +536,12 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
 
     // ── Mención directa de producto → audio/video inmediato ─────────────────
     if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
-        let productoDetectado = detectarProductoMencionado(msgLower, productos);
+        const productoActualConv = conv.producto_id ? productos.find(p => p.id === conv.producto_id) || null : null;
+        let productoDetectado = detectarProductoMencionado(msgLower, productos, productoActualConv);
         if (productoDetectado) {
-            // Upsell automático: redirigir al producto de mayor valor si el cliente no pide explícitamente el básico
-            const quiereBasico = /b[aá]sico|solo el curso|solo los agentes|economico|econ[oó]mico|barato|m[aá]s barato|m[aá]s econ/i.test(msgLower);
+            // Upsell automático: redirigir al de mayor valor, salvo que el cliente pida el básico
+            // o diga que YA sabe usar n8n (entonces no le sirve el curso → básico $20k)
+            const quiereBasico = /b[aá]sico|solo el curso|solo los agentes|solo los? agente|economico|econ[oó]mico|barato|m[aá]s barato|m[aá]s econ|ya manejo|ya s[eé] usar|ya lo tengo|ya lo manejo|ya uso n8n|s[eé] usar n8n/i.test(msgLower);
             if (!quiereBasico) {
                 if (/capcut/i.test(productoDetectado.nombre) && !/combo/i.test(productoDetectado.nombre)) {
                     const combo = productos.find(p => /combo/i.test(p.nombre));
@@ -546,8 +600,13 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     }
 
     // ── "Ya pagué" sin comprobante ────────────────────────────────────────────
-    if (/ya pagu[eé]|realic[eé] el pago|hice la transferencia|mand[eé] el pago/i.test(msgLower)) {
-        const r = '¡Listo! Mándame la captura del comprobante (Nequi, Daviplata, etc.) y en segundos te envío el acceso ⚡';
+    // Frases explícitas de pago (en cualquier estado)
+    const dicePagoExplicito = /ya pagu[eé]|realic[eé] el pago|hice la transferencia|mand[eé] el pago|transfer[ií]|ya consign[eé]|ya envi[eé] el pago/i.test(msgLower);
+    // Frases ambiguas de "ya terminé" — solo cuentan si va camino al pago (esperando comprobante/email o ya dio correo)
+    const enFlujoPago = ['esperando_comprobante', 'esperando_email'].includes(conv.estado) || conv.email_cliente;
+    const diceListoAmbiguo = enFlujoPago && /^(listo|ya est[aá]|ya qued[oó]|ya hice|ya esta echo|ya está hecho|hecho|ya|ya aqui|aqui esta|ahi esta|ahi va|ya envi[eé])\b/i.test(msgLower);
+    if (dicePagoExplicito || diceListoAmbiguo) {
+        const r = 'Perfecto 🙌 Para activarte el acceso necesito ver la *captura o foto del pago*. Mándamela por aquí y en segundos te llega todo ⚡';
         await enviarTexto(numero, r);
         await guardarHistorial(conv, 'bot', r);
         if (conv.estado !== 'esperando_comprobante' && conv.producto_id) {

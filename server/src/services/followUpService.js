@@ -87,6 +87,7 @@ async function seguimientoComprobante() {
     const pendientes = await Conversacion.findAll({ where: { estado: 'esperando_comprobante' } });
 
     for (const conv of pendientes) {
+        if (bloqueado(conv)) continue;
         const notas     = conv.notas || {};
         const ultima    = new Date(conv.updatedAt).getTime();
         const ahora     = Date.now();
@@ -128,6 +129,7 @@ async function seguimientoEmail() {
     const pendientes = await Conversacion.findAll({ where: { estado: 'esperando_email' } });
 
     for (const conv of pendientes) {
+        if (bloqueado(conv)) continue;
         const notas  = conv.notas || {};
         const ultima = new Date(conv.updatedAt).getTime();
         const ahora  = Date.now();
@@ -165,6 +167,7 @@ async function seguimientoInteres() {
     });
 
     for (const conv of pendientes) {
+        if (bloqueado(conv)) continue;
         const notas   = conv.notas || {};
         const ahora   = Date.now();
         const ultima  = new Date(conv.updatedAt).getTime();
@@ -230,6 +233,7 @@ async function seguimientoPago() {
     });
 
     for (const conv of pendientes) {
+        if (bloqueado(conv)) continue;
         const notas = conv.notas || {};
         const ahora = Date.now();
         const ultima = new Date(conv.updatedAt).getTime();
@@ -267,6 +271,7 @@ async function seguimientoFrio() {
     });
 
     for (const conv of frios) {
+        if (bloqueado(conv)) continue;
         const notas = conv.notas || {};
         if (notas.seg_frio_1) continue;
         const ahora = Date.now();
@@ -295,6 +300,7 @@ async function seguimientoUpsell() {
     });
 
     for (const conv of comprados) {
+        if (bloqueado(conv)) continue;
         const notas = conv.notas || {};
         if (notas.upsell_enviado) continue;
 
@@ -302,6 +308,11 @@ async function seguimientoUpsell() {
         await enviarUpsell(conv);
         await conv.update({ notas: { ...notas, upsell_enviado: Date.now() } });
     }
+}
+
+// Cliente pidió que no le escriban más — no hacer seguimientos
+function bloqueado(conv) {
+    return !!(conv.notas && conv.notas.no_followup);
 }
 
 // ── Ejecutar todo ─────────────────────────────────────────────────────────────
