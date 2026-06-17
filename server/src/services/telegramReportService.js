@@ -50,11 +50,24 @@ async function generarReporteDiario() {
     const topId = Object.entries(topMes).sort((a, b) => b[1] - a[1])[0]?.[0];
     const topProducto = topId ? await Producto.findByPk(topId) : null;
 
-    // Tasa de conversión del mes
+    // Tasa de conversión del mes (con 1 decimal) vs baseline 2026-06-16
     const totalConversaciones = await Conversacion.count();
     const tasaConversion = totalConversaciones > 0
-        ? Math.round((ventasMes.length / totalConversaciones) * 100)
+        ? Math.round((ventasMes.length / totalConversaciones) * 1000) / 10
         : 0;
+    const BASELINE_CONV = parseFloat(process.env.BASELINE_CONVERSION || '4.8');
+    const tendencia = tasaConversion > BASELINE_CONV
+        ? `▲ subió desde ${BASELINE_CONV}% 🎉`
+        : tasaConversion < BASELINE_CONV
+        ? `▼ bajó desde ${BASELINE_CONV}%`
+        : `= igual que ${BASELINE_CONV}%`;
+
+    // Leads calientes (casi compran) y comprobantes en revisión manual
+    const calientes  = await Conversacion.count({
+        where: { estado: { [Op.in]: ['esperando_email', 'esperando_comprobante'] } }
+    });
+    const espComp    = await Conversacion.findAll({ where: { estado: 'esperando_comprobante' } });
+    const enRevision = espComp.filter(c => c.notas && c.notas.comprobante_en_revision).length;
 
     // Meta diaria (configurable)
     const metaDiaria = parseInt(process.env.META_VENTAS_DIA || '3');
@@ -72,15 +85,17 @@ async function generarReporteDiario() {
 
 📊 *ESTE MES*
    Ventas: ${ventasMes.length} | Ingresos: *${fmt(ingresosMes)}*
-   Tasa de conversión: ${tasaConversion}%
+   Conversión: *${tasaConversion}%* (${tendencia})
 
 💬 *CHATS*
    Activos ahora: ${chatsActivos}
+   🔥 Leads calientes (casi compran): ${calientes}
    Esperando pago: ${pendientes} ⏳
+${enRevision > 0 ? `   🔎 Comprobantes por revisar: *${enRevision}*` : ''}
 
 ${topProducto ? `🏆 *Top producto:* ${topProducto.nombre}` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━
-${pendientes > 0 ? `\n⚠️ Tienes *${pendientes}* compradores esperando respuesta. Revisa el panel.` : '\n✅ Todo al día — sin pendientes.'}`;
+${enRevision > 0 ? `\n🔎 Tienes *${enRevision}* comprobante(s) en revisión manual — verifícalos y entrega el acceso si el pago es válido.` : ''}${pendientes > 0 ? `\n⚠️ *${pendientes}* compradores esperando respuesta. Revisa el panel.` : (enRevision === 0 ? '\n✅ Todo al día — sin pendientes.' : '')}`;
 
     await notificarTelegram(msg);
     console.log('[TelegramReport] Reporte diario enviado');
