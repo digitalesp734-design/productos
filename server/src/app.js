@@ -167,6 +167,11 @@ async function iniciar(intentos = 5) {
             waClient.iniciar();
             iniciarFollowUpService();
             iniciarTelegramReportService();
+            // Módulo de finanzas personales — aislado para que un fallo suyo NO afecte el bot de ventas
+            try {
+                const { iniciarFinanzasService } = require('./services/finanzasService');
+                iniciarFinanzasService().catch(e => console.error('[Finanzas] init:', e.message));
+            } catch (e) { console.error('[Finanzas] no se pudo iniciar:', e.message); }
             return;
         } catch (err) {
             console.error(`Intento ${i}/${intentos}: ${err.message}`);
