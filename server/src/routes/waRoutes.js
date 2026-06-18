@@ -183,6 +183,32 @@ router.get('/raw-msg', auth, async (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// DIAGNÓSTICO IA: prueba si Claude responde o falla (devuelve la respuesta o el error EXACTO).
+router.post('/diag-ia', auth, async (req, res) => {
+    try {
+        const { probarIA } = require('../services/botService');
+        const texto = (req.body && req.body.texto) || 'Hola, tengo una PlayStation 2, ¿qué me recomiendas?';
+        const r = await probarIA(texto);
+        res.json({ ok: true, ...r });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message, stack: (e.stack||'').split('\n').slice(0,5).join(' | ') }); }
+});
+
+// DIAGNÓSTICO HISTORIAL: muestra el texto REAL que el bot recibió/guardó en chats recientes.
+router.get('/diag-historial', auth, async (req, res) => {
+    try {
+        const n = parseInt(req.query.n) || 8;
+        const convs = await Conversacion.findAll({ order: [['updatedAt','DESC']], limit: n });
+        const out = convs.map(c => ({
+            numero: c.numero_wa,
+            nombre: c.nombre_cliente,
+            estado: c.estado,
+            producto_id: c.producto_id,
+            historial: (c.historial || []).map(h => ({ rol: h.rol, texto: h.texto }))
+        }));
+        res.json({ ok: true, convs: out });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // DIAGNÓSTICO: intenta enviar a un JID y devuelve éxito o el error EXACTO de WhatsApp.
 // Si no se pasa jid, usa el de la conversación activa más reciente.
 router.post('/diag-envio', auth, async (req, res) => {

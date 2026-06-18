@@ -76,6 +76,23 @@ async function claudeChat(systemPrompt, historialMsgs, userMsg) {
     }
 }
 
+// DIAGNÓSTICO: prueba la IA y devuelve la respuesta o el error EXACTO de la API.
+async function probarIA(texto) {
+    try {
+        const client = getAnthropic();
+        const tieneKey = !!process.env.ANTHROPIC_API_KEY;
+        const resp = await client.messages.create({
+            model:      'claude-sonnet-4-6',
+            max_tokens: 200,
+            system:     'Eres Cristian, vendedor. Responde en 1 frase.',
+            messages:   [{ role: 'user', content: texto }]
+        });
+        return { tieneKey, respuesta: resp.content[0]?.text?.trim() || null, modelo: 'claude-sonnet-4-6' };
+    } catch (e) {
+        return { tieneKey: !!process.env.ANTHROPIC_API_KEY, error: e.message, status: e.status || null, tipo: e.name || null };
+    }
+}
+
 // ── Transcribir audio con Whisper ─────────────────────────────────────────────
 async function transcribirAudio(buffer) {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -880,5 +897,5 @@ async function enviarUpsell(conv) {
 module.exports = {
     procesarMensaje, notificarTelegram, enviarUpsell,
     // helpers para recuperación de leads de anuncios (waRoutes)
-    getProductos, detectarProductoMencionado, enviarDetalleProducto, guardarHistorial, fmt
+    getProductos, detectarProductoMencionado, enviarDetalleProducto, guardarHistorial, fmt, probarIA
 };
