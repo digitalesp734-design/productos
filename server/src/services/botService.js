@@ -68,7 +68,7 @@ async function openaiChat(systemPrompt, msgs) {
         const r = await fetch('https://api.openai.com/v1/chat/completions', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-            body:    JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o', max_tokens: 400, messages })
+            body:    JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini', max_tokens: 400, messages })
         });
         const d = await r.json();
         if (d.error) { console.error('OpenAI respaldo error:', d.error.message); return null; }
