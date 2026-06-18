@@ -79,6 +79,22 @@ function getLastMsg(jid) {
     return lastMsg.get(jid) || null;
 }
 
+// Busca recursivamente el primer texto significativo en un mensaje (rescata CTWA raros)
+function buscarTextoProfundo(obj, prof = 0) {
+    if (!obj || typeof obj !== 'object' || prof > 6) return '';
+    const campos = ['conversation','text','title','body','caption','selectedDisplayText','name','description'];
+    for (const k of campos) {
+        if (typeof obj[k] === 'string' && obj[k].trim().length > 2) return obj[k].trim();
+    }
+    for (const k in obj) {
+        if (obj[k] && typeof obj[k] === 'object') {
+            const r = buscarTextoProfundo(obj[k], prof + 1);
+            if (r) return r;
+        }
+    }
+    return '';
+}
+
 loadLidCache();
 
 function getClient() { return sock; }
@@ -360,9 +376,26 @@ async function iniciar() {
                             || '';
                     }
                 }
-                // Log para diagnóstico de mensajes no parseados (solo en desarrollo o si texto vacío)
-                if (!texto && process.env.NODE_ENV !== 'production') {
-                    console.log('🔍 Mensaje sin texto parseado:', JSON.stringify(Object.keys(m)));
+                // Formato 3: TÍTULO/BODY del propio anuncio (externalAdReply) — TRAE EL PRODUCTO
+                // Ej: "MAS INFORMACION DE LA EMULADORA DE JUEGOS" / "...PAQUETE DE N8N" / "...curso de capcut"
+                if (!texto) {
+                    const ad = m.extendedTextMessage?.contextInfo?.externalAdReply
+                        || m.imageMessage?.contextInfo?.externalAdReply
+                        || m.contextInfo?.externalAdReply
+                        || m.ephemeralMessage?.message?.extendedTextMessage?.contextInfo?.externalAdReply;
+                    if (ad) {
+                        texto = ad.title || ad.body || ad.sourceId || '';
+                        if (texto) console.log('📣 Texto extraído del anuncio CTWA:', texto);
+                    }
+                }
+                // Formato 4 (último recurso): buscar recursivamente cualquier texto en el mensaje
+                if (!texto) {
+                    texto = buscarTextoProfundo(m);
+                    if (texto) console.log('🔎 Texto extraído por búsqueda profunda:', texto.slice(0,60));
+                }
+                // Log de diagnóstico de mensajes que siguen sin texto
+                if (!texto) {
+                    console.log('🔍 Mensaje sin texto. Estructura:', JSON.stringify(m).slice(0, 400));
                 }
                 let mediaBuffer = null;
 
