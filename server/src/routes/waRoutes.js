@@ -18,6 +18,48 @@ router.post('/restart', auth, async (req, res) => {
     setTimeout(() => resetAndRestart().catch(console.error), 200);
 });
 
+// FORZAR respuesta a TODOS los que quedaron colgados: re-procesa el último mensaje
+// del cliente en conversaciones activas recientes (aunque el bot "ya haya respondido" en BD).
+router.post('/responder-todos', auth, async (req, res) => {
+    res.json({ ok: true, msg: 'Respondiendo a todos los pendientes...' });
+    setTimeout(async () => {
+        try {
+            const horas = parseInt(req.body && req.body.horas) || 12;
+            const desde = new Date(Date.now() - horas * 60 * 60 * 1000);
+            const convs = await Conversacion.findAll({
+                where: {
+                    updatedAt: { [Op.gt]: desde },
+                    estado: { [Op.in]: ['nuevo','viendo_producto','menu','esperando_email','esperando_comprobante'] }
+                },
+                order: [['updatedAt','ASC']]
+            });
+            let respondidos = 0, saltados = 0;
+            for (const conv of convs) {
+                const historial = conv.historial || [];
+                const ultimoUser = [...historial].reverse().find(h => h.rol === 'user');
+                if (!ultimoUser || !ultimoUser.texto) { saltados++; continue; }
+                // Si el cliente fue el último en escribir O el bot respondió pero pudo no entregarse → re-responder
+                try {
+                    await procesarMensaje({
+                        numero:      conv.numero_wa,
+                        nombre:      conv.nombre_cliente,
+                        tipo:        'text',
+                        texto:       ultimoUser.texto,
+                        mediaBuffer: null
+                    });
+                    respondidos++;
+                    await new Promise(r => setTimeout(r, 4000)); // 4s entre cada uno: no saturar
+                } catch (e) { console.error('[responder-todos]', conv.numero_wa, e.message); }
+            }
+            console.log(`[responder-todos] ${respondidos} respondidos, ${saltados} saltados`);
+            try {
+                const { notificarTelegram } = require('../services/botService');
+                await notificarTelegram(`✅ Respondí a ${respondidos} clientes que estaban esperando.`);
+            } catch {}
+        } catch (e) { console.error('[responder-todos] error:', e.message); }
+    }, 200);
+});
+
 // DIAGNÓSTICO: intenta enviar a un JID y devuelve éxito o el error EXACTO de WhatsApp.
 // Si no se pasa jid, usa el de la conversación activa más reciente.
 router.post('/diag-envio', auth, async (req, res) => {
