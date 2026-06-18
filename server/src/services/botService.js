@@ -294,7 +294,7 @@ El cliente está viendo el Pack n8n Premium. ${precio} de por vida — 350 agent
     return `Eres Cristian, vendedor PROFESIONAL de productos digitales por WhatsApp. Colombiano, 28 años, cálido y seguro. Vendes como los mejores: escuchas, conectas, y cierras. Hablas como una persona real, nunca como folleto.
 
 ${productoActual
-    ? `Estás hablando con alguien interesado en: ${productoActual.nombre}\nNo cambies de producto ni menciones otros durante esta conversación.${infoProducto}`
+    ? `Ahora mismo el cliente está viendo: ${productoActual.nombre}.${infoProducto}\n\n⚠️ MUY IMPORTANTE: LEE bien lo que el cliente escribe y SÍGUELO. Si pregunta por OTRO producto (ej: estaban en CapCut y ahora pregunta por n8n o la emuladora), NO te aferres al anterior — cámbiate y háblale de lo que AHORA pregunta. Nunca le insistas en un producto que él ya no quiere. Nunca confundas los productos: CapCut = editar video, n8n = automatizar con agentes de IA, EmulaConsolas = jugar juegos retro.`
     : 'Aún no sabes qué busca el cliente. Haz UNA pregunta para descubrir qué necesita y guíalo al producto que le sirve.'}
 
 Pago: ${pago}
@@ -670,10 +670,13 @@ async function procesarMensaje({ numero, nombre, tipo, texto, mediaBuffer }) {
     }
 
     // ── Mención directa de producto → audio/video inmediato ─────────────────
-    if (['nuevo', 'viendo_producto', 'menu'].includes(estado)) {
+    // Detecta en CUALQUIER estado: si el cliente menciona OTRO producto, lo seguimos (no nos aferramos al viejo).
+    {
         const productoActualConv = conv.producto_id ? productos.find(p => p.id === conv.producto_id) || null : null;
         let productoDetectado = detectarProductoMencionado(msgLower, productos, productoActualConv);
-        if (productoDetectado) {
+        const estadoInicial    = ['nuevo', 'viendo_producto', 'menu'].includes(estado);
+        const cambioDeProducto = productoDetectado && conv.producto_id && productoDetectado.id !== conv.producto_id;
+        if (productoDetectado && (estadoInicial || cambioDeProducto)) {
             // Upsell automático: redirigir al de mayor valor, salvo que el cliente pida el básico
             // o diga que YA sabe usar n8n (entonces no le sirve el curso → básico $20k)
             const quiereBasico = /b[aá]sico|solo el curso|solo los agentes|solo los? agente|economico|econ[oó]mico|barato|m[aá]s barato|m[aá]s econ|ya manejo|ya s[eé] usar|ya lo tengo|ya lo manejo|ya uso n8n|s[eé] usar n8n/i.test(msgLower);
