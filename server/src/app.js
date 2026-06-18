@@ -167,11 +167,14 @@ async function iniciar(intentos = 5) {
             waClient.iniciar();
             iniciarFollowUpService();
             iniciarTelegramReportService();
-            // Módulo de finanzas personales — aislado para que un fallo suyo NO afecte el bot de ventas
-            try {
-                const { iniciarFinanzasService } = require('./services/finanzasService');
-                iniciarFinanzasService().catch(e => console.error('[Finanzas] init:', e.message));
-            } catch (e) { console.error('[Finanzas] no se pudo iniciar:', e.message); }
+            // Módulo de finanzas personales — DESACTIVADO temporalmente (diagnóstico bot ventas).
+            // Reactivar poniendo env FINANZAS_ON=1 cuando se confirme que el bot de WhatsApp es estable.
+            if (process.env.FINANZAS_ON === '1') {
+                try {
+                    const { iniciarFinanzasService } = require('./services/finanzasService');
+                    iniciarFinanzasService().catch(e => console.error('[Finanzas] init:', e.message));
+                } catch (e) { console.error('[Finanzas] no se pudo iniciar:', e.message); }
+            }
             return;
         } catch (err) {
             console.error(`Intento ${i}/${intentos}: ${err.message}`);
