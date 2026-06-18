@@ -877,4 +877,8 @@ async function enviarUpsell(conv) {
     } catch (e) { console.error('Upsell error:', e.message); }
 }
 
-module.exports = { procesarMensaje, notificarTelegram, enviarUpsell };
+module.exports = {
+    procesarMensaje, notificarTelegram, enviarUpsell,
+    // helpers para recuperación de leads de anuncios (waRoutes)
+    getProductos, detectarProductoMencionado, enviarDetalleProducto, guardarHistorial, fmt
+};

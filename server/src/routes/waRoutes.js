@@ -3,7 +3,7 @@ const { Op }      = require('sequelize');
 const { getQRImage, getStatus, resetAndRestart } = require('../services/whatsappClient');
 const { Conversacion, Producto } = require('../models');
 const { enviarTexto } = require('../services/whatsappService');
-const { procesarMensaje } = require('../services/botService');
+const { procesarMensaje, getProductos, detectarProductoMencionado, enviarDetalleProducto, guardarHistorial, fmt } = require('../services/botService');
 const auth        = require('../middleware/auth');
 
 router.get('/status', auth, async (req, res) => {
@@ -58,6 +58,119 @@ router.post('/responder-todos', auth, async (req, res) => {
             } catch {}
         } catch (e) { console.error('[responder-todos] error:', e.message); }
     }, 200);
+});
+
+// RECUPERAR LEADS DE ANUNCIOS mal atendidos: busca conversaciones donde el bot
+// respondió genérico (no envió la info del producto) y, detectando el producto en
+// TODO el historial del cliente, les manda el audio/video + info + precio correctos.
+// body: { horas: 72, ejecutar: false }  → ejecutar:false = solo lista (no envía nada).
+router.post('/recuperar-anuncios', auth, async (req, res) => {
+    try {
+        const horas    = parseInt(req.body && req.body.horas) || 72;
+        const ejecutar = !!(req.body && req.body.ejecutar);
+        const desde    = new Date(Date.now() - horas * 60 * 60 * 1000);
+        const productos = await getProductos();
+
+        const convs = await Conversacion.findAll({
+            where: {
+                updatedAt: { [Op.gt]: desde },
+                estado: { [Op.in]: ['nuevo', 'menu', 'viendo_producto'] }
+            },
+            order: [['updatedAt', 'ASC']]
+        });
+
+        // ¿El bot ya le envió el DETALLE de un producto? (marcador "🔥 nombre")
+        const yaRecibioDetalle = (hist) => (hist || []).some(h =>
+            h.rol === 'bot' && typeof h.texto === 'string' && h.texto.startsWith('🔥 '));
+
+        // Detecta producto en TODOS los mensajes del cliente (no solo el último)
+        const detectarEnHistorial = (hist) => {
+            const msgs = (hist || []).filter(h => h.rol === 'user' && h.texto)
+                .map(h => String(h.texto).toLowerCase());
+            for (const txt of msgs.reverse()) {       // del más reciente al más viejo
+                const p = detectarProductoMencionado(txt, productos, null);
+                if (p) return p;
+            }
+            return null;
+        };
+
+        // Sube al de mayor valor (igual que procesarMensaje), salvo que pida básico
+        const aplicarUpsell = (prod, hist) => {
+            const txt = (hist || []).filter(h => h.rol === 'user' && h.texto)
+                .map(h => String(h.texto).toLowerCase()).join(' ');
+            const quiereBasico = /b[aá]sico|solo el curso|economico|econ[oó]mico|barato|ya manejo|ya s[eé] usar|ya uso n8n/.test(txt);
+            if (quiereBasico) return prod;
+            if (/capcut/i.test(prod.nombre) && !/combo/i.test(prod.nombre)) {
+                const c = productos.find(p => /combo/i.test(p.nombre)); if (c) return c;
+            } else if (/n8n|agente/i.test(prod.nombre) && !/premium/i.test(prod.nombre)) {
+                const pr = productos.find(p => /premium/i.test(p.nombre) && /n8n/i.test(p.nombre)); if (pr) return pr;
+            }
+            return prod;
+        };
+
+        const plan = [];
+        for (const conv of convs) {
+            const hist = conv.historial || [];
+            if (yaRecibioDetalle(hist)) { plan.push({ numero: conv.numero_wa, nombre: conv.nombre_cliente, accion: 'omitir-ya-atendido' }); continue; }
+            let prod = detectarEnHistorial(hist);
+            if (prod) prod = aplicarUpsell(prod, hist);
+            plan.push({
+                numero:   conv.numero_wa,
+                nombre:   conv.nombre_cliente || '',
+                estado:   conv.estado,
+                producto: prod ? prod.nombre : null,
+                accion:   prod ? 'enviar-detalle' : 're-enganche-humano',
+                _conv:    conv,
+                _prod:    prod
+            });
+        }
+
+        if (!ejecutar) {
+            // DRY RUN: solo mostrar el plan, sin enviar nada
+            return res.json({
+                ok: true, dryRun: true, total: plan.length,
+                conDetalle:  plan.filter(p => p.accion === 'enviar-detalle').length,
+                reEnganche:  plan.filter(p => p.accion === 're-enganche-humano').length,
+                yaAtendidos: plan.filter(p => p.accion === 'omitir-ya-atendido').length,
+                plan: plan.map(({ _conv, _prod, ...p }) => p)
+            });
+        }
+
+        // EJECUTAR: enviar en segundo plano, con pausa entre cada uno
+        res.json({ ok: true, ejecutando: true, total: plan.filter(p => p._conv).length });
+        setTimeout(async () => {
+            let enviados = 0, enganches = 0;
+            for (const item of plan) {
+                if (!item._conv) continue;
+                const conv = item._conv;
+                try {
+                    if (item.accion === 'enviar-detalle' && item._prod) {
+                        await conv.update({ estado: 'viendo_producto', producto_id: item._prod.id });
+                        await guardarHistorial(conv, 'bot', `🔥 ${item._prod.nombre} — ${fmt(item._prod.precio)}`);
+                        await enviarDetalleProducto(conv.numero_wa, item._prod);
+                        enviados++;
+                    } else if (item.accion === 're-enganche-humano') {
+                        const nombre = (conv.nombre_cliente || '').split(' ')[0];
+                        const saludo = nombre ? `¡Hola ${nombre}! 🙌` : '¡Hola! 🙌';
+                        const msg = `${saludo} Soy Cristian. Vi que me escribiste por el anuncio y no alcancé a responderte bien, mil disculpas 🙏\n\n¿Era por la *emuladora* de juegos 🎮, el *CapCut PRO* para editar 🎬 o los *agentes de IA con n8n* 🤖? Cuéntame y te paso todo al toque.`;
+                        await enviarTexto(conv.numero_wa, msg);
+                        await guardarHistorial(conv, 'bot', msg);
+                        enganches++;
+                    }
+                    await new Promise(r => setTimeout(r, 5000)); // 5s entre cada cliente
+                } catch (e) { console.error('[recuperar-anuncios]', conv.numero_wa, e.message); }
+            }
+            console.log(`[recuperar-anuncios] ${enviados} con info de producto, ${enganches} re-enganches`);
+            try {
+                const { notificarTelegram } = require('../services/botService');
+                await notificarTelegram(`📣 Recuperación de anuncios: envié info de producto a ${enviados} y re-enganché a ${enganches} leads.`);
+            } catch {}
+        }, 200);
+
+    } catch (e) {
+        console.error('[recuperar-anuncios] error:', e.message);
+        res.status(500).json({ ok: false, error: e.message });
+    }
 });
 
 // DIAGNÓSTICO: devuelve la estructura del último mensaje CTWA cuyo texto no se pudo extraer.
