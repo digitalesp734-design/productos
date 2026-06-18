@@ -36,10 +36,33 @@ function getAnthropic() {
 }
 
 // ── Claude Sonnet: vendedor inteligente ──────────────────────────────────────
+// Normaliza el historial para la API de Claude: descarta vacíos, colapsa mensajes
+// consecutivos del mismo rol y garantiza que empiece con 'user' (si no, la API falla y el bot no responde).
+function normalizarMsgs(historialMsgs, userMsg) {
+    const limpio = [];
+    for (const m of historialMsgs) {
+        const content = (m.content == null ? '' : String(m.content)).trim();
+        if (!content) continue;
+        const prev = limpio[limpio.length - 1];
+        if (prev && prev.role === m.role) {
+            prev.content += '\n' + content;        // une mensajes seguidos del mismo rol
+        } else {
+            limpio.push({ role: m.role, content });
+        }
+    }
+    while (limpio.length && limpio[0].role !== 'user') limpio.shift();  // debe empezar con user
+    // El mensaje nuevo es del cliente: si lo último ya era 'user', lo fusionamos.
+    const last = limpio[limpio.length - 1];
+    const nuevo = String(userMsg || '').trim() || '(mensaje sin texto)';
+    if (last && last.role === 'user') last.content += '\n' + nuevo;
+    else limpio.push({ role: 'user', content: nuevo });
+    return limpio;
+}
+
 async function claudeChat(systemPrompt, historialMsgs, userMsg) {
     try {
         const client = getAnthropic();
-        const msgs   = [...historialMsgs, { role: 'user', content: userMsg }];
+        const msgs   = normalizarMsgs(historialMsgs, userMsg);
         const resp   = await client.messages.create({
             model:      'claude-sonnet-4-6',
             max_tokens: 400,
@@ -301,6 +324,9 @@ Pago: ${pago}
 ${precioOferta ? `
 🔥 OFERTA ACTIVA PARA ESTE CLIENTE: tiene un precio especial de ${fmt(precioOferta)} (en vez de ${precio || 'el precio normal'}). Usa SIEMPRE ${fmt(precioOferta)} al hablar de precio y al cerrar. Es una oferta para que se decida hoy — recuérdaselo: "te dejé el precio especial de ${fmt(precioOferta)}, aprovéchalo hoy".
 ` : ''}
+📖 ANTES DE RESPONDER — LEE LA CONVERSACIÓN (REGLA #0, OBLIGATORIA):
+Antes de escribir CUALQUIER respuesta, RELEE los últimos 15 mensajes de esta conversación (están arriba, en el historial). Entiende: qué producto le interesa, qué ya le dijiste, qué te preguntó, en qué punto van (si ya pidió precio, si ya le pasaste el pago, si ya dio el correo). NUNCA respondas como si fuera el primer mensaje. NUNCA repitas algo que ya dijiste ni vuelvas a preguntar algo que el cliente ya respondió. Tu respuesta debe ser la CONTINUACIÓN natural de lo último que se habló — como una persona que sí está leyendo el chat. Si el cliente ya te dijo qué quiere, NO le preguntes otra vez "¿qué buscas?".
+
 🚫 REGLAS QUE NUNCA PUEDES ROMPER (lo más importante):
 1. ERES CRISTIAN, UNA PERSONA REAL. Jamás digas que eres bot, IA o que esto es automatizado. Si preguntan "¿es automático?" / "¿eres un robot?": "No, soy Cristian 😄 a veces me demoro porque atiendo a varios, pero soy yo".
 2. TÚ NO ENTREGAS NADA POR TU CUENTA. El acceso lo entrega el sistema SOLO cuando el cliente manda la FOTO del pago. Nunca digas "ya te envié", "ya quedó enviado", "revisa tu correo". Eso es mentira y mata la confianza.
@@ -350,10 +376,13 @@ async function respuestaIA(msg, conv, productos) {
     const intercambios = (conv.historial || []).filter(h => h.rol === 'user').length;
     const precioOferta = conv.notas?.precio_oferta || null;
     const sistema   = buildSystemPrompt(productos, productoActual, intercambios, precioOferta);
-    const historial = (conv.historial || []).slice(-20).map(h => ({
-        role:    h.rol === 'bot' ? 'assistant' : 'user',
-        content: h.texto
-    }));
+    const historial = (conv.historial || [])
+        .filter(h => h.texto && String(h.texto).trim())   // descarta mensajes vacíos (CTWA sin texto) que rompen la API
+        .slice(-20)
+        .map(h => ({
+            role:    h.rol === 'bot' ? 'assistant' : 'user',
+            content: String(h.texto)
+        }));
     return claudeChat(sistema, historial, msg);
 }
 
@@ -386,10 +415,13 @@ Eres una persona real (Cristian). Nunca digas que eres un bot, una IA o que esto
 
 async function respuestaSoporte(msg, conv, producto, productos) {
     const sistema   = buildSoportePrompt(producto, productos);
-    const historial = (conv.historial || []).slice(-20).map(h => ({
-        role:    h.rol === 'bot' ? 'assistant' : 'user',
-        content: h.texto
-    }));
+    const historial = (conv.historial || [])
+        .filter(h => h.texto && String(h.texto).trim())
+        .slice(-20)
+        .map(h => ({
+            role:    h.rol === 'bot' ? 'assistant' : 'user',
+            content: String(h.texto)
+        }));
     return claudeChat(sistema, historial, msg);
 }
 
