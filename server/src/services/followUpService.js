@@ -87,7 +87,7 @@ async function seguimientoComprobante() {
     const pendientes = await Conversacion.findAll({ where: { estado: 'esperando_comprobante' } });
 
     for (const conv of pendientes) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas     = conv.notas || {};
         const ultima    = new Date(conv.updatedAt).getTime();
         const ahora     = Date.now();
@@ -129,7 +129,7 @@ async function seguimientoEmail() {
     const pendientes = await Conversacion.findAll({ where: { estado: 'esperando_email' } });
 
     for (const conv of pendientes) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas  = conv.notas || {};
         const ultima = new Date(conv.updatedAt).getTime();
         const ahora  = Date.now();
@@ -167,7 +167,7 @@ async function seguimientoInteres() {
     });
 
     for (const conv of pendientes) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas   = conv.notas || {};
         const ahora   = Date.now();
         const ultima  = new Date(conv.updatedAt).getTime();
@@ -233,7 +233,7 @@ async function seguimientoPago() {
     });
 
     for (const conv of pendientes) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas = conv.notas || {};
         const ahora = Date.now();
         const ultima = new Date(conv.updatedAt).getTime();
@@ -271,7 +271,7 @@ async function seguimientoFrio() {
     });
 
     for (const conv of frios) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas = conv.notas || {};
         if (notas.seg_frio_1) continue;
         const ahora = Date.now();
@@ -300,7 +300,7 @@ async function seguimientoUpsell() {
     });
 
     for (const conv of comprados) {
-        if (bloqueado(conv)) continue;
+        if (!puedeSeguir(conv)) continue;
         const notas = conv.notas || {};
         if (notas.upsell_enviado) continue;
 
@@ -313,6 +313,21 @@ async function seguimientoUpsell() {
 // Cliente pidió que no le escriban más — no hacer seguimientos
 function bloqueado(conv) {
     return !!(conv.notas && conv.notas.no_followup);
+}
+
+// Cuántos mensajes seguidos ha enviado el bot al final SIN que el cliente conteste
+function mensajesSeguidosBot(conv) {
+    const h = conv.historial || [];
+    let n = 0;
+    for (let i = h.length - 1; i >= 0; i--) {
+        if (h[i].rol === 'bot') n++; else break;
+    }
+    return n;
+}
+
+// FRENO ANTI-SPAM: no seguir si está bloqueado o si el bot ya insistió >=3 veces sin respuesta
+function puedeSeguir(conv) {
+    return !bloqueado(conv) && mensajesSeguidosBot(conv) < 3;
 }
 
 // ── Ejecutar todo ─────────────────────────────────────────────────────────────
