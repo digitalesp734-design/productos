@@ -60,6 +60,16 @@ router.post('/responder-todos', auth, async (req, res) => {
     }, 200);
 });
 
+// DIAGNÓSTICO: devuelve la estructura del último mensaje CTWA cuyo texto no se pudo extraer.
+router.get('/raw-msg', auth, async (req, res) => {
+    try {
+        const { getUltimoMsgRaw } = require('../services/whatsappClient');
+        const raw = getUltimoMsgRaw();
+        if (!raw) return res.json({ ok: true, vacio: true, msg: 'Aún no hay mensaje sin texto capturado' });
+        res.json({ ok: true, jid: raw.jid, nombre: raw.nombre, hace_seg: Math.round((Date.now()-raw.ts)/1000), claves: Object.keys(raw.message || {}), message: raw.message });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // DIAGNÓSTICO: intenta enviar a un JID y devuelve éxito o el error EXACTO de WhatsApp.
 // Si no se pasa jid, usa el de la conversación activa más reciente.
 router.post('/diag-envio', auth, async (req, res) => {

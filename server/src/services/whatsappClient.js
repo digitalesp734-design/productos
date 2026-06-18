@@ -7,6 +7,8 @@ let qrData = null;
 let status = 'disconnected';
 let preKeysReady = false;
 const msgQueue = [];
+let ultimoMsgRaw = null; // último mensaje cuyo texto no se pudo extraer (diagnóstico CTWA)
+function getUltimoMsgRaw() { return ultimoMsgRaw; }
 
 // Alerta Telegram para eventos críticos del bot
 async function alertarTelegram(mensaje) {
@@ -393,9 +395,10 @@ async function iniciar() {
                     texto = buscarTextoProfundo(m);
                     if (texto) console.log('🔎 Texto extraído por búsqueda profunda:', texto.slice(0,60));
                 }
-                // Log de diagnóstico de mensajes que siguen sin texto
+                // Log de diagnóstico de mensajes que siguen sin texto + guardar para inspección por endpoint
                 if (!texto) {
-                    console.log('🔍 Mensaje sin texto. Estructura:', JSON.stringify(m).slice(0, 400));
+                    ultimoMsgRaw = { jid, nombre: msg.pushName || '', ts: Date.now(), message: msg.message || {} };
+                    console.log('🔍 Mensaje sin texto. Estructura:', JSON.stringify(m).slice(0, 600));
                 }
                 let mediaBuffer = null;
 
@@ -431,4 +434,4 @@ async function getQRImage() {
     try { return await QRCode.toDataURL(qrData); } catch (e) { return null; }
 }
 
-module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid, getLastMsg };
+module.exports = { iniciar, getClient, getQR, getQRImage, getStatus, resetAndRestart, resolveLid, getLastMsg, getUltimoMsgRaw };
