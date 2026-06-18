@@ -59,38 +59,68 @@ function normalizarMsgs(historialMsgs, userMsg) {
     return limpio;
 }
 
+// RESPALDO: si Claude falla (sin saldo, caída, etc.), OpenAI mantiene el bot vendiendo.
+async function openaiChat(systemPrompt, msgs) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return null;
+    try {
+        const messages = [{ role: 'system', content: systemPrompt }, ...msgs];
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body:    JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o', max_tokens: 400, messages })
+        });
+        const d = await r.json();
+        if (d.error) { console.error('OpenAI respaldo error:', d.error.message); return null; }
+        return d.choices?.[0]?.message?.content?.trim() || null;
+    } catch (e) { console.error('OpenAI respaldo error:', e.message); return null; }
+}
+
 async function claudeChat(systemPrompt, historialMsgs, userMsg) {
+    const msgs = normalizarMsgs(historialMsgs, userMsg);
     try {
         const client = getAnthropic();
-        const msgs   = normalizarMsgs(historialMsgs, userMsg);
         const resp   = await client.messages.create({
             model:      'claude-sonnet-4-6',
             max_tokens: 400,
             system:     systemPrompt,
             messages:   msgs
         });
-        return resp.content[0]?.text?.trim() || null;
+        const out = resp.content[0]?.text?.trim();
+        if (out) return out;
+        console.error('Claude devolvió vacío — usando OpenAI de respaldo');
     } catch (e) {
-        console.error('Claude error:', e.message);
-        return null;
+        console.error('Claude error:', e.message, '— usando OpenAI de respaldo');
     }
+    // Respaldo automático con OpenAI (el bot sigue vendiendo aunque Claude esté caído/sin saldo)
+    return await openaiChat(systemPrompt, msgs);
 }
 
-// DIAGNÓSTICO: prueba la IA y devuelve la respuesta o el error EXACTO de la API.
+// DIAGNÓSTICO: prueba Claude directo, el respaldo OpenAI, y la cadena completa (lo que usa el bot).
 async function probarIA(texto) {
+    const out = {
+        tieneClaude: !!process.env.ANTHROPIC_API_KEY,
+        tieneOpenAI: !!process.env.OPENAI_API_KEY
+    };
+    // 1) Claude directo
     try {
         const client = getAnthropic();
-        const tieneKey = !!process.env.ANTHROPIC_API_KEY;
         const resp = await client.messages.create({
-            model:      'claude-sonnet-4-6',
-            max_tokens: 200,
-            system:     'Eres Cristian, vendedor. Responde en 1 frase.',
-            messages:   [{ role: 'user', content: texto }]
+            model: 'claude-sonnet-4-6', max_tokens: 100,
+            system: 'Eres Cristian, vendedor. Responde en 1 frase.',
+            messages: [{ role: 'user', content: texto }]
         });
-        return { tieneKey, respuesta: resp.content[0]?.text?.trim() || null, modelo: 'claude-sonnet-4-6' };
-    } catch (e) {
-        return { tieneKey: !!process.env.ANTHROPIC_API_KEY, error: e.message, status: e.status || null, tipo: e.name || null };
-    }
+        out.claude = { ok: true, respuesta: resp.content[0]?.text?.trim() || null };
+    } catch (e) { out.claude = { ok: false, error: e.message, status: e.status || null }; }
+    // 2) Respaldo OpenAI directo
+    out.openai = { ok: false };
+    try {
+        const r = await openaiChat('Eres Cristian, vendedor. Responde en 1 frase.', [{ role: 'user', content: texto }]);
+        out.openai = { ok: !!r, respuesta: r };
+    } catch (e) { out.openai = { ok: false, error: e.message }; }
+    // 3) Cadena real del bot (Claude con respaldo automático)
+    out.cadenaBot = await claudeChat('Eres Cristian, vendedor amable. Responde en 1 frase.', [], texto);
+    return out;
 }
 
 // ── Transcribir audio con Whisper ─────────────────────────────────────────────
@@ -143,9 +173,36 @@ Extrae los datos y responde SOLO con un JSON válido, sin texto extra:
         const json = JSON.parse((txt.match(/\{[\s\S]*\}/) || ['{}'])[0]);
         return json;
     } catch (e) {
-        console.error('Vision error:', e.message);
-        return { error: true };
+        console.error('Vision error:', e.message, '— usando OpenAI Vision de respaldo');
+        return await analizarComprobanteOpenAI(buffer);
     }
+}
+
+// RESPALDO Vision con OpenAI para comprobantes (cuando Claude falla/sin saldo).
+async function analizarComprobanteOpenAI(buffer) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey || !buffer) return { error: true };
+    try {
+        const prompt = `Analiza esta imagen. ¿Es un comprobante de pago/transferencia colombiano (Nequi, Daviplata, Bancolombia, Bre-b, consignación)?
+Responde SOLO con un JSON válido, sin texto extra:
+{"esComprobante": true/false, "monto": número entero sin puntos o null, "destinatario": texto o null, "fecha": texto o null, "exitoso": true/false, "sospechoso": true solo si parece editada/falsa}`;
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body:    JSON.stringify({
+                model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
+                max_tokens: 350,
+                messages: [{ role: 'user', content: [
+                    { type: 'text', text: prompt },
+                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${buffer.toString('base64')}` } }
+                ]}]
+            })
+        });
+        const d = await r.json();
+        if (d.error) { console.error('OpenAI Vision respaldo error:', d.error.message); return { error: true }; }
+        const txt = d.choices?.[0]?.message?.content || '';
+        return JSON.parse((txt.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    } catch (e) { console.error('OpenAI Vision respaldo error:', e.message); return { error: true }; }
 }
 
 // Valida que el comprobante analizado coincida con el pago esperado.
