@@ -18,6 +18,40 @@ router.post('/restart', auth, async (req, res) => {
     setTimeout(() => resetAndRestart().catch(console.error), 200);
 });
 
+// DIAGNÓSTICO: intenta enviar a un JID y devuelve éxito o el error EXACTO de WhatsApp.
+// Si no se pasa jid, usa el de la conversación activa más reciente.
+router.post('/diag-envio', auth, async (req, res) => {
+    try {
+        const { getClient } = require('../services/whatsappClient');
+        const sock = getClient();
+        if (!sock) return res.json({ ok: false, motivo: 'sock_null', detalle: 'WhatsApp no inicializado' });
+
+        let jid = req.body && req.body.jid;
+        let fuente = 'body';
+        if (!jid) {
+            const conv = await Conversacion.findOne({
+                where: { estado: { [Op.in]: ['nuevo','viendo_producto','menu','esperando_email','esperando_comprobante'] } },
+                order: [['updatedAt', 'DESC']]
+            });
+            jid = conv && conv.numero_wa;
+            fuente = 'ultima_conversacion';
+        }
+        if (!jid) return res.json({ ok: false, motivo: 'sin_jid' });
+
+        const texto = req.body && req.body.texto ? req.body.texto
+            : '🔧 Prueba de conexión. Si recibes esto, el bot ya quedó funcionando ✅';
+        try {
+            const r = await sock.sendMessage(jid, { text: texto });
+            return res.json({ ok: true, enviado: true, jid, fuente, msgId: r?.key?.id || null });
+        } catch (e) {
+            return res.json({ ok: false, enviado: false, jid, fuente, error: e.message,
+                stack: (e.stack || '').split('\n').slice(0,4).join(' | ') });
+        }
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // Responder a todos los que están esperando respuesta
 router.post('/responder-pendientes', auth, async (req, res) => {
     try {
